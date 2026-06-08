@@ -51,6 +51,10 @@ class Portfolio(Base):
         back_populates="portfolio",
         cascade="all, delete-orphan",
     )
+    transactions: Mapped[list["Transaction"]] = relationship(
+        back_populates="portfolio",
+        cascade="all, delete-orphan",
+    )
 
     def to_dict(self) -> dict:
         return {
@@ -138,4 +142,49 @@ class Price(Base):
             "last_updated": self.last_updated.isoformat()
             if self.last_updated
             else None,
+        }
+
+
+class Transaction(Base):
+    """A single buy or sell of a ticker (a leg of the trading ledger).
+
+    Current parcels and realised gains are derived from these via FIFO
+    (see ledger.py). ``quantity`` is always positive; ``type`` distinguishes
+    buy from sell. ``fee`` defaults to 0 and is wired through the cost-base math
+    so it has no effect until populated.
+    """
+
+    __tablename__ = "transactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(
+        ForeignKey("portfolios.id"), nullable=False, index=True
+    )
+    ticker: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    exchange: Mapped[str | None] = mapped_column(String, default="ASX")
+    type: Mapped[str] = mapped_column(String, nullable=False)  # "buy" | "sell"
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    price_per_unit: Mapped[float] = mapped_column(Float, nullable=False)
+    # Currency the trade settled in. NULL means the base currency (e.g. AUD).
+    currency: Mapped[str | None] = mapped_column(String)
+    fee: Mapped[float] = mapped_column(Float, default=0.0)
+    trade_date: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    reference: Mapped[str | None] = mapped_column(String)
+    created_date: Mapped[dt.datetime] = mapped_column(DateTime, default=utcnow)
+
+    portfolio: Mapped["Portfolio"] = relationship(back_populates="transactions")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "portfolio_id": self.portfolio_id,
+            "ticker": self.ticker,
+            "exchange": self.exchange,
+            "type": self.type,
+            "quantity": self.quantity,
+            "price_per_unit": self.price_per_unit,
+            "currency": self.currency,
+            "fee": self.fee,
+            "trade_date": self.trade_date.isoformat() if self.trade_date else None,
+            "reference": self.reference,
         }

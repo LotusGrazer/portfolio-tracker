@@ -26,7 +26,7 @@ import config  # noqa: E402
 import portfolio as pf  # noqa: E402
 from app import app as flask_app  # noqa: E402
 from database import SessionLocal, engine, ensure_portfolio  # noqa: E402
-from models import Base, Holding  # noqa: E402
+from models import Base, Holding, Transaction  # noqa: E402
 
 
 def pytest_unconfigure(config):  # noqa: ARG001
@@ -129,5 +129,43 @@ def add_holding(session):
         session.add(holding)
         session.commit()
         return holding
+
+    return _add
+
+
+@pytest.fixture
+def add_transaction(session):
+    """Add a buy/sell transaction to the default portfolio and return it."""
+    import datetime as dt
+
+    def _add(
+        ticker,
+        ttype,
+        quantity,
+        price,
+        trade_date,
+        exchange="ASX",
+        fee=0.0,
+        currency=None,
+        reference=None,
+    ):
+        portfolio = ensure_portfolio(session, config.DEFAULT_PORTFOLIO, "actual")
+        txn = Transaction(
+            portfolio_id=portfolio.id,
+            ticker=ticker,
+            exchange=exchange,
+            type=ttype,
+            quantity=quantity,
+            price_per_unit=price,
+            fee=fee,
+            currency=currency,
+            trade_date=dt.date.fromisoformat(trade_date)
+            if isinstance(trade_date, str)
+            else trade_date,
+            reference=reference,
+        )
+        session.add(txn)
+        session.commit()
+        return txn
 
     return _add

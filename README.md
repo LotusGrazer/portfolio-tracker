@@ -25,9 +25,10 @@ lookups via yfinance and benchmark comparison, plus a React + TypeScript
 | `models.py` | SQLAlchemy ORM models (portfolios, holdings, prices) |
 | `database.py` | Engine, sessions, initialization |
 | `portfolio.py` | Core logic: pricing, valuation, CSV ingestion, benchmarks |
+| `ledger.py` | Transaction ledger: FIFO cost base, realised gains, CGT, sync |
 | `config.py` | Configuration (env-overridable) |
 | `requirements.txt` | Python dependencies |
-| `sample_holdings.csv` / `sample_benchmarks.csv` | Example uploads |
+| `sample_holdings.csv` / `sample_benchmarks.csv` / `sample_transactions.csv` | Example uploads |
 
 ## Setup
 
@@ -121,6 +122,22 @@ ASX200,VAS,100,ASX
 60/40 ASX/US,VGS,40,ASX
 ```
 
+**Transactions** (Phase 3 — the buy/sell ledger; `exchange`, `fee`, `reference`,
+`currency` are optional):
+
+```csv
+ticker,type,quantity,price_per_unit,trade_date,exchange,fee,reference,currency
+AOV,buy,500,2.50,2023-01-15,ASX,,CMC-1001,
+AOV,buy,300,3.10,2023-08-01,ASX,,CMC-1002,
+AOV,sell,200,4.00,2024-09-01,ASX,,CMC-1003,
+AAPL,buy,20,150.00,2023-09-01,US,,IBKR-22,USD
+```
+
+`quantity` is always positive; `type` (`buy`/`sell`) sets the direction. Unlike
+the holdings snapshot, this **is** a full transaction log — record every buy and
+sell, and the FIFO engine derives your current parcels and realised gains. `fee`
+defaults to 0 (wired through cost base, so populate it later when you have it).
+
 ### Exchanges & tickers
 
 yfinance needs exchange-qualified symbols. The `exchange` column maps to the
@@ -197,6 +214,32 @@ the `excess_return_pct` (actual − benchmark). `coverage` shows how many
 constituents had usable price history (e.g. `3/3`). Returns are **price
 returns** (capital only) computed from the current holdings/weights — they
 isolate investment performance from contribution timing, but exclude dividends.
+
+### `GET /transactions`
+All transactions across actual portfolios, newest trade first.
+
+### `POST /transactions/upload`
+Ingest a transactions CSV (multipart `file` or raw body). Same `portfolio` and
+`replace` params as `/holdings/upload`. Bad rows are reported and skipped.
+
+### `GET /portfolio/realised`
+Realised gains via FIFO, with a CGT-discount estimate. Optional
+`?financial_year=2023-24` (Australian FY, 1 Jul–30 Jun) filters by sell date.
+
+```bash
+curl "http://127.0.0.1:5000/portfolio/realised?financial_year=2023-24"
+```
+
+Returns each realised event (matched buy/sell parcels, gain, and
+`cgt_discount_eligible`), totals grouped by currency, and a `cgt_estimate`
+(total/short-term/eligible gains, estimated 50% discount, net). **The CGT figure
+is an informational estimate, not tax advice** — it doesn't model capital-loss
+offset ordering or carried-forward losses.
+
+### `POST /transactions/sync-holdings`
+Rebuilds the portfolio's holdings from the ledger's open (FIFO) parcels — one
+holding row per parcel, preserving acquisition date and cost base — so the
+valuation/summary/comparison views reflect your transaction history.
 
 ### `POST /benchmarks/create`
 Create/replace a benchmark. Two ways:
@@ -277,18 +320,21 @@ Short answer: no, and there's no benefit over yfinance.
   yfinance (Yahoo Finance) gives equivalent coverage for ASX, US, Cboe-AU
   cross-listings, FX, and crypto. Recommend staying with yfinance.
 
-## Phase 3: transaction ledger & CGT (planned)
+## Phase 3: transaction ledger & CGT (backend built)
 
-The current model tracks *current positions* (parcels), not transactions. A
-planned next phase adds a `transactions` table (buys **and** sells) and derives
-holdings from it, enabling:
+A `transactions` table (buys **and** sells) with a FIFO cost-base engine
+([`ledger.py`](ledger.py)) powers realised-gain and CGT reporting:
 
-- Realised gains on sells, with a cost-base method (FIFO / average)
-- Australian CGT support: parcel-level cost base and the 12-month 50% discount
-- A transaction history view and import
+- **FIFO** matching (oldest parcels sold first); fees wired through (default 0).
+- **Realised gains** per matched parcel, with Australian-FY filtering.
+- **CGT discount**: parcels held > 12 months flagged for the 50% discount; a
+  simplified net-gain estimate (with caveats — not tax advice).
+- **Sync to holdings**: derive current parcels from the ledger into
+  `portfolio_holdings`, so all existing views work off your real trade history.
 
-The schema already stores per-parcel `date_acquired` and `cost_base_per_unit`,
-which feed straight into this.
+See the `/transactions/*` and `/portfolio/realised` endpoints above. **Still to
+come:** a Transactions / CGT tab in the frontend, and per-trade-date FX for
+exact AUD CGT on foreign-currency trades.
 
 ## Other ideas (not yet built)
 

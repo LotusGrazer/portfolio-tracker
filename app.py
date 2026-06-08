@@ -10,6 +10,7 @@ from __future__ import annotations
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+import ledger
 import portfolio as pf
 from database import init_db, session_scope
 
@@ -103,6 +104,43 @@ def create_app() -> Flask:
         with session_scope() as session:
             result = pf.create_benchmark_from_csv(session, raw)
         return jsonify(result), 201
+
+    # --------------------------------------------------------------------- #
+    # Transactions / CGT (Phase 3)
+    # --------------------------------------------------------------------- #
+    @app.get("/transactions")
+    def get_transactions():
+        with session_scope() as session:
+            return jsonify(ledger.get_transactions(session))
+
+    @app.post("/transactions/upload")
+    def upload_transactions():
+        raw, error = _read_csv_payload()
+        if error:
+            return jsonify({"error": error}), 400
+        portfolio_name = request.form.get("portfolio") or request.args.get("portfolio")
+        replace = _truthy(request.form.get("replace") or request.args.get("replace"))
+        with session_scope() as session:
+            result = ledger.ingest_transactions_csv(
+                session, raw, portfolio_name=portfolio_name, replace=replace
+            )
+        return jsonify(result.as_dict()), 201
+
+    @app.get("/portfolio/realised")
+    def get_realised():
+        # ?financial_year=2023-24  (optional; omit for all-time)
+        fy = request.args.get("financial_year")
+        with session_scope() as session:
+            return jsonify(ledger.compute_realised(session, financial_year=fy))
+
+    @app.post("/transactions/sync-holdings")
+    def sync_holdings():
+        # Rebuild holdings from the ledger's open (FIFO) parcels.
+        portfolio_name = request.form.get("portfolio") or request.args.get("portfolio")
+        with session_scope() as session:
+            return jsonify(
+                ledger.sync_holdings_from_transactions(session, portfolio_name)
+            )
 
     return app
 

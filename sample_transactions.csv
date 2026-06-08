@@ -1,0 +1,6 @@
+ticker,type,quantity,price_per_unit,trade_date,exchange,fee,reference,currency
+AOV,buy,500,2.50,2023-01-15,ASX,,CMC-1001,
+AOV,buy,300,3.10,2023-08-01,ASX,,CMC-1002,
+AOV,sell,200,4.00,2024-09-01,ASX,,CMC-1003,
+VAS,buy,1000,90.00,2022-03-01,ASX,,CMC-1004,
+AAPL,buy,20,150.00,2023-09-01,US,,IBKR-22,USD
