@@ -41,7 +41,16 @@ _EXCHANGE = {
     "US": {"suffix": "", "currency": "USD"},
     "NASDAQ": {"suffix": "", "currency": "USD"},
     "NYSE": {"suffix": "", "currency": "USD"},
+    # Cboe Australia (formerly Chi-X; shown as e.g. IQLT.XA in Apple Stocks)
+    # cross-quotes US-listed ETFs. We price off the underlying US listing in
+    # USD and FX-convert to the base currency, which matches their AUD value.
+    "CBOE_AU": {"suffix": "", "currency": "USD"},
+    "CHIA": {"suffix": "", "currency": "USD"},
+    "XA": {"suffix": "", "currency": "USD"},
     "CRYPTO": {"suffix": "-USD", "currency": "USD"},
+    # Pass-through for raw Yahoo symbols such as indices (e.g. ^AXJO). Currency
+    # is unknown, so it is treated as the base currency (no FX conversion).
+    "RAW": {"suffix": "", "currency": None},
 }
 DEFAULT_EXCHANGE = "ASX"
 
@@ -537,3 +546,164 @@ def _upsert_benchmark(
             f"weights sum to {round(total_weight, 2)}%, not 100%"
         )
     return result
+
+
+# --------------------------------------------------------------------------- #
+# Benchmark vs. actual comparison
+# --------------------------------------------------------------------------- #
+# yfinance period strings we support for the comparison endpoint.
+SUPPORTED_PERIODS = ("1mo", "3mo", "6mo", "ytd", "1y", "3y", "5y")
+DEFAULT_PERIODS = ("1mo", "3mo", "6mo", "ytd", "1y")
+
+
+def _fetch_close_series(symbol: str, period: str):
+    """Return a pandas Series of daily closes for ``symbol`` over ``period``.
+
+    This is the single network seam for historical data (mocked in tests).
+    Returns ``None`` if no usable history is available.
+    """
+    try:
+        hist = yf.Ticker(symbol).history(period=period)
+    except Exception:
+        return None
+    if hist is None or hist.empty or "Close" not in hist:
+        return None
+    closes = hist["Close"].dropna()
+    return closes if len(closes) else None
+
+
+def _period_return(
+    symbol: str, currency: str | None, period: str, base: str
+) -> float | None:
+    """Fractional total price return of ``symbol`` over ``period``, in ``base``.
+
+    If the instrument trades in a non-base currency, the start/end prices are
+    converted using the FX rate at each endpoint so the return reflects what an
+    investor in ``base`` actually experienced (price move + currency move).
+    """
+    closes = _fetch_close_series(symbol, period)
+    if closes is None or len(closes) < 2:
+        return None
+    start = float(closes.iloc[0])
+    end = float(closes.iloc[-1])
+    if start == 0:
+        return None
+
+    if not currency or currency == base:
+        return end / start - 1.0
+
+    fx = _fetch_close_series(f"{currency}{base}=X", period)
+    if fx is None or len(fx) < 2:
+        # Fall back to the native-currency return rather than failing.
+        return end / start - 1.0
+    start_fx = float(fx.iloc[0])
+    end_fx = float(fx.iloc[-1])
+    if start_fx == 0:
+        return end / start - 1.0
+    return (end * end_fx) / (start * start_fx) - 1.0
+
+
+def _weighted_period_returns(
+    components: list[tuple[float | None, dict[str, float | None]]],
+    periods,
+) -> dict[str, dict]:
+    """Weight per-component returns into a single return per period.
+
+    ``components`` is a list of ``(weight, {period: return})``. For each period
+    we average the available component returns by weight, renormalising over the
+    components that actually have data (so one missing price doesn't zero out the
+    period). ``coverage`` reports how many components contributed.
+    """
+    out: dict[str, dict] = {}
+    for period in periods:
+        weighted_sum = 0.0
+        weight_total = 0.0
+        contributing = 0
+        for weight, returns in components:
+            r = returns.get(period)
+            if r is None or weight is None:
+                continue
+            weighted_sum += weight * r
+            weight_total += weight
+            contributing += 1
+        out[period] = {
+            "return_pct": round(weighted_sum / weight_total * 100.0, 2)
+            if weight_total
+            else None,
+            "coverage": f"{contributing}/{len(components)}",
+        }
+    return out
+
+
+def _actual_period_returns(session: Session, periods) -> dict[str, dict]:
+    """Return of the current actual holdings, weighted by market value."""
+    base = config.BASE_CURRENCY
+    holdings = (
+        session.query(Holding)
+        .join(Portfolio)
+        .filter(Portfolio.type == "actual")
+        .all()
+    )
+    components: list[tuple[float | None, dict[str, float | None]]] = []
+    for h in holdings:
+        symbol, currency = resolve_symbol(h.ticker, h.exchange)
+        weight = value_holding(session, h)["market_value_base"]
+        returns = {p: _period_return(symbol, currency, p, base) for p in periods}
+        components.append((weight, returns))
+    return _weighted_period_returns(components, periods)
+
+
+def _benchmark_period_returns(
+    session: Session, benchmark: Portfolio, periods
+) -> dict[str, dict]:
+    """Return of a benchmark, weighted by its target weights."""
+    base = config.BASE_CURRENCY
+    components: list[tuple[float | None, dict[str, float | None]]] = []
+    for c in benchmark.holdings:
+        symbol, currency = resolve_symbol(c.ticker, c.exchange)
+        returns = {p: _period_return(symbol, currency, p, base) for p in periods}
+        components.append((c.weight_pct, returns))
+    return _weighted_period_returns(components, periods)
+
+
+def compare_to_benchmarks(session: Session, periods=None) -> dict:
+    """Compare actual-portfolio returns to every benchmark over each period.
+
+    Returns the actual portfolio's return, each benchmark's return, and the
+    excess (actual − benchmark) per period, all in the base currency.
+    """
+    periods = tuple(periods) if periods else DEFAULT_PERIODS
+    actual = _actual_period_returns(session, periods)
+
+    benchmarks = (
+        session.query(Portfolio).filter(Portfolio.type == "benchmark").all()
+    )
+    results = []
+    for bench in benchmarks:
+        bench_returns = _benchmark_period_returns(session, bench, periods)
+        comparison = {}
+        for period in periods:
+            a = actual[period]["return_pct"]
+            b = bench_returns[period]["return_pct"]
+            comparison[period] = {
+                "actual_return_pct": a,
+                "benchmark_return_pct": b,
+                "excess_return_pct": round(a - b, 2)
+                if (a is not None and b is not None)
+                else None,
+                "benchmark_coverage": bench_returns[period]["coverage"],
+            }
+        results.append(
+            {
+                "id": bench.id,
+                "name": bench.name,
+                "periods": comparison,
+            }
+        )
+
+    return {
+        "base_currency": config.BASE_CURRENCY,
+        "periods": list(periods),
+        "actual": actual,
+        "benchmarks": results,
+    }

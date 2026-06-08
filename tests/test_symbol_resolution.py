@@ -14,6 +14,12 @@ import portfolio as pf
         ("AAPL", "NASDAQ", "AAPL", "USD"),
         ("AAPL", "NYSE", "AAPL", "USD"),
         ("BTC", "CRYPTO", "BTC-USD", "USD"),
+        # Cboe Australia cross-quotes resolve to the underlying US listing.
+        ("IQLT", "CBOE_AU", "IQLT", "USD"),
+        ("IVLU", "XA", "IVLU", "USD"),
+        ("IMTM", "CHIA", "IMTM", "USD"),
+        # RAW passes the symbol through untouched (e.g. an index).
+        ("^AXJO", "RAW", "^AXJO", None),
         ("VAS", None, "VAS.AX", "AUD"),  # defaults to ASX
         ("VAS", "UNKNOWN", "VAS.AX", "AUD"),  # unknown -> default ASX
     ],

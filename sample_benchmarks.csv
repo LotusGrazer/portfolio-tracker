@@ -1,4 +1,6 @@
 name,ticker,weight_pct,exchange
-ASX200,VAS,100,ASX
-60/40 ASX/US,VAS,60,ASX
-60/40 ASX/US,VGS,40,ASX
+MSCI World,URTH,100,US
+ASX 200,VAS,100,ASX
+Factor Blend (50/25/25),IQLT,50,CBOE_AU
+Factor Blend (50/25/25),IVLU,25,CBOE_AU
+Factor Blend (50/25/25),IMTM,25,CBOE_AU

@@ -70,6 +70,25 @@ def create_app() -> Flask:
         with session_scope() as session:
             return jsonify(pf.list_benchmarks(session))
 
+    @app.get("/benchmarks/compare")
+    def compare_benchmarks():
+        # ?periods=1mo,3mo,1y  (defaults applied if omitted/empty)
+        raw_periods = request.args.get("periods")
+        periods = None
+        if raw_periods:
+            requested = [p.strip() for p in raw_periods.split(",") if p.strip()]
+            invalid = [p for p in requested if p not in pf.SUPPORTED_PERIODS]
+            if invalid:
+                return jsonify(
+                    {
+                        "error": f"unsupported period(s): {', '.join(invalid)}",
+                        "supported": list(pf.SUPPORTED_PERIODS),
+                    }
+                ), 400
+            periods = requested or None
+        with session_scope() as session:
+            return jsonify(pf.compare_to_benchmarks(session, periods))
+
     @app.post("/benchmarks/create")
     def create_benchmark():
         # Accept either a CSV upload or a JSON body.
