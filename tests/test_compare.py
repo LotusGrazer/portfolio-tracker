@@ -122,11 +122,10 @@ def test_compare_excess_reflects_outperformance(session, add_holding, history):
 
 
 def test_compare_multi_constituent_benchmark(session, add_holding, history):
-    # 50% IQLT + 25% IVLU + 25% IMTM, all flat FX.
-    history["IQLT"] = [100.0, 110.0]  # +10%
-    history["IVLU"] = [100.0, 120.0]  # +20%
-    history["IMTM"] = [100.0, 140.0]  # +40%
-    history["USDAUD=X"] = [1.0, 1.0]
+    # 50% IQLT + 25% IVLU + 25% IMTM, priced in AUD via .XA (no FX needed).
+    history["IQLT.XA"] = [100.0, 110.0]  # +10%
+    history["IVLU.XA"] = [100.0, 120.0]  # +20%
+    history["IMTM.XA"] = [100.0, 140.0]  # +40%
     history["VAS.AX"] = [100.0, 100.0]
     add_holding("VAS", quantity=10, exchange="ASX")
     pf.create_benchmark_from_dict(

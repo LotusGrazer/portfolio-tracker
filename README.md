@@ -141,7 +141,7 @@ defaults to 0 (wired through cost base, so populate it later when you have it).
 **CMC "Cash Transaction Summary" export** — auto-detected on upload (no
 reformatting needed). Trade rows in the `Description` (`Bght`/`Sold`) are parsed
 for ticker, quantity, price, and reference; `:US` codes map to the US exchange
-and known Cboe-Australia codes (IQLT/IVLU/IMTM) to `CBOE_AU`; all other rows
+and known Cboe-Australia codes (IQLT/IVLU/IMTM/IVHG) to `CBOE_AU`; all other rows
 (deposits, dividends, interest, transfers, balances) are skipped. Brokerage is
 derived from the Debit/Credit columns when present. The file also contains
 dividend/distribution rows — not used yet, but useful for future total-return
@@ -156,20 +156,18 @@ right symbol automatically:
 |------------|----------------|-----------------|----------|
 | `ASX` (default) | `VAS` | `VAS.AX` | AUD |
 | `US` / `NASDAQ` / `NYSE` | `AAPL` | `AAPL` | USD |
-| `CBOE_AU` / `CHIA` / `XA` | `IQLT` | `IQLT` | USD |
+| `CBOE_AU` / `CHIA` / `XA` | `IQLT` | `IQLT.XA` | AUD |
 | `CRYPTO` | `BTC` | `BTC-USD` | USD |
 | `RAW` | `^AXJO` | `^AXJO` | base (no FX) |
 
-**Cboe Australia (Chi-X) ETFs** — funds like `IQLT`, `IVLU`, `IMTM` show up as
-`IQLT.XA` in Apple Stocks. They are cross-quotations of the underlying
-**US-listed** iShares ETFs, so `CBOE_AU` resolves to the US listing (USD) and
-the value is FX-converted to AUD. Use this exchange for them; `ASX` will not
-find them.
+**Cboe Australia (Chi-X) ETFs** — funds like `IQLT`, `IVLU`, `IMTM`, `IVHG`.
+Yahoo lists these directly with a `.XA` suffix, **priced in AUD** (e.g.
+`IQLT.XA`) — the same code Apple Stocks shows. `CBOE_AU` resolves to that. Use
+this exchange for them; `ASX` will not find them. (Avoid the US listing of the
+same code — same index, but a different unit price.)
 
-These ETFs are typically **unhedged**, so their AUD value moves with USD/AUD —
-which is exactly what pricing them off the US listing (USD) and FX-converting to
-AUD produces. Since you pay AUD for them, leave `cost_currency` blank (defaults
-to AUD) so gain/loss is measured against what you actually paid.
+Since the `.XA` listing is already AUD-quoted and you pay AUD for them, leave
+`cost_currency` blank (defaults to AUD).
 
 ## API reference
 
@@ -316,11 +314,11 @@ Other scripts: `npm run build` (typecheck + production build), `npm test`
 - **Price returns only.** Comparison and gain/loss are capital returns; they
   exclude dividends/distributions, so they understate total return for income
   funds.
-- **Hedged funds.** Pricing assumes a fund's AUD value tracks its native
-  (USD) price via FX — true for *unhedged* funds. A currency-*hedged* fund
-  would not move with FX, so its market value would be miscalculated. None of
-  the current sample holdings are hedged; flag any hedged holdings if you add
-  them.
+- **Tickers yfinance can't price.** A few codes have no Yahoo quote (e.g.
+  delisted/renamed funds like `VGMF`); they show as unpriced rather than
+  guessed. New Cboe-Australia codes also need adding to `CBOE_AU_TICKERS` in
+  `ledger.py` (or set `exchange=CBOE_AU` in the CSV) so they resolve to `.XA`.
+  A per-ticker manual price override is a planned fallback.
 
 ## Can I use data from the Apple Stocks app?
 

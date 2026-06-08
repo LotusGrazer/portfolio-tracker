@@ -41,12 +41,13 @@ _EXCHANGE = {
     "US": {"suffix": "", "currency": "USD"},
     "NASDAQ": {"suffix": "", "currency": "USD"},
     "NYSE": {"suffix": "", "currency": "USD"},
-    # Cboe Australia (formerly Chi-X; shown as e.g. IQLT.XA in Apple Stocks)
-    # cross-quotes US-listed ETFs. We price off the underlying US listing in
-    # USD and FX-convert to the base currency, which matches their AUD value.
-    "CBOE_AU": {"suffix": "", "currency": "USD"},
-    "CHIA": {"suffix": "", "currency": "USD"},
-    "XA": {"suffix": "", "currency": "USD"},
+    # Cboe Australia (formerly Chi-X). Yahoo lists these directly with a ".XA"
+    # suffix, priced in AUD (e.g. IQLT.XA), which already reflects the
+    # unhedged USD exposure via the AUD-denominated quote. (Do NOT use the
+    # US listing — same index, but a different unit price / NAV.)
+    "CBOE_AU": {"suffix": ".XA", "currency": "AUD"},
+    "CHIA": {"suffix": ".XA", "currency": "AUD"},
+    "XA": {"suffix": ".XA", "currency": "AUD"},
     "CRYPTO": {"suffix": "-USD", "currency": "USD"},
     # Pass-through for raw Yahoo symbols such as indices (e.g. ^AXJO). Currency
     # is unknown, so it is treated as the base currency (no FX conversion).

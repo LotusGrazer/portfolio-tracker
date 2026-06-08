@@ -14,10 +14,10 @@ import portfolio as pf
         ("AAPL", "NASDAQ", "AAPL", "USD"),
         ("AAPL", "NYSE", "AAPL", "USD"),
         ("BTC", "CRYPTO", "BTC-USD", "USD"),
-        # Cboe Australia cross-quotes resolve to the underlying US listing.
-        ("IQLT", "CBOE_AU", "IQLT", "USD"),
-        ("IVLU", "XA", "IVLU", "USD"),
-        ("IMTM", "CHIA", "IMTM", "USD"),
+        # Cboe Australia listings resolve to Yahoo's ".XA" suffix, priced in AUD.
+        ("IQLT", "CBOE_AU", "IQLT.XA", "AUD"),
+        ("IVLU", "XA", "IVLU.XA", "AUD"),
+        ("IMTM", "CHIA", "IMTM.XA", "AUD"),
         # RAW passes the symbol through untouched (e.g. an index).
         ("^AXJO", "RAW", "^AXJO", None),
         ("VAS", None, "VAS.AX", "AUD"),  # defaults to ASX

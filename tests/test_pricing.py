@@ -54,18 +54,18 @@ def test_cost_currency_explicit_usd(session, add_holding):
     assert result["gain_loss_base"] == 3000.0
 
 
-def test_cboe_au_holding_paid_in_aud(session, add_holding, market):
-    # Unhedged Cboe-AU ETF: priced off the US listing (USD), but bought in AUD.
-    market.prices["IQLT"] = (50.0, "USD")
+def test_cboe_au_holding_priced_in_aud(session, add_holding, market):
+    # Cboe-AU ETF: priced directly off Yahoo's .XA listing in AUD.
+    market.prices["IQLT.XA"] = (50.0, "AUD")
     h = add_holding("IQLT", quantity=10, exchange="CBOE_AU", cost=40.0)
     result = pf.value_holding(session, h)
-    assert result["symbol"] == "IQLT"
-    assert result["price_currency"] == "USD"
-    # MV: 10 * 50 USD * 1.5 = 750 AUD; cost: 10 * 40 AUD = 400 AUD.
-    assert result["market_value_base"] == 750.0
+    assert result["symbol"] == "IQLT.XA"
+    assert result["price_currency"] == "AUD"
+    # MV: 10 * 50 AUD = 500 AUD (fx=1); cost: 10 * 40 AUD = 400 AUD.
+    assert result["market_value_base"] == 500.0
     assert result["cost_base_currency"] == "AUD"
     assert result["cost_base_total_base"] == 400.0
-    assert result["gain_loss_base"] == 350.0
+    assert result["gain_loss_base"] == 100.0
 
 
 def test_get_fx_rate_same_currency_is_one(session):

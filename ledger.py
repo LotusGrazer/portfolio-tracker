@@ -45,10 +45,10 @@ BUY = "buy"
 SELL = "sell"
 CGT_DISCOUNT_DAYS = 365  # held strictly longer than 12 months
 
-# Tickers that are Cboe Australia (Chi-X) cross-quotes, which CMC lists as plain
-# AUD-priced codes. Mapped to the CBOE_AU exchange so pricing resolves correctly.
-# (Other bare codes default to ASX.)
-CBOE_AU_TICKERS = {"IQLT", "IVLU", "IMTM"}
+# Tickers that are Cboe Australia (Chi-X) listings, which CMC lists as plain
+# AUD-priced codes. Mapped to the CBOE_AU exchange (Yahoo ".XA" suffix) so
+# pricing resolves correctly. Other bare codes default to ASX. Extend as needed.
+CBOE_AU_TICKERS = {"IQLT", "IVLU", "IMTM", "IVHG"}
 
 
 # --------------------------------------------------------------------------- #
