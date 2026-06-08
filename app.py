@@ -1,24 +1,45 @@
-"""Flask application exposing the portfolio tracker REST API.
+"""Flask application: portfolio tracker REST API + bundled frontend.
 
 Run locally:
-    python app.py
-or:
-    flask --app app run --debug
+    python app.py            # serves API + built frontend at http://127.0.0.1:5000
+    FLASK_DEBUG=1 python app.py   # dev: auto-reload
+
+The built React app (frontend/dist) is served at the root, so the whole tool
+runs as a single process at a single URL. During frontend development you can
+still run the Vite dev server separately (npm run dev) — CORS is enabled.
 """
 from __future__ import annotations
 
-from flask import Flask, jsonify, request
+import os
+
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 
+import config
 import ledger
 import portfolio as pf
 from database import init_db, session_scope
 
+FRONTEND_DIST = os.path.join(config.BASE_DIR, "frontend", "dist")
+
 
 def create_app() -> Flask:
-    app = Flask(__name__)
-    CORS(app)  # allow the Phase 2 React frontend to call us cross-origin
+    app = Flask(__name__, static_folder=FRONTEND_DIST, static_url_path="")
+    CORS(app)  # allow a separate Vite dev server to call us cross-origin
     init_db()
+
+    @app.get("/")
+    def index():
+        index_html = os.path.join(FRONTEND_DIST, "index.html")
+        if os.path.exists(index_html):
+            return send_file(index_html)
+        return jsonify(
+            {
+                "message": "Frontend not built yet. Run setup.command (or "
+                "`cd frontend && npm install && npm run build`), then reload.",
+                "api": "ok",
+            }
+        )
 
     # --------------------------------------------------------------------- #
     # Error handling
@@ -174,4 +195,7 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    # Debug/reloader off by default so the launcher runs a single clean process;
+    # set FLASK_DEBUG=1 for auto-reload during development.
+    debug = _truthy(os.environ.get("FLASK_DEBUG"))
+    app.run(host="127.0.0.1", port=5000, debug=debug)

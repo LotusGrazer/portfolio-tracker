@@ -5,9 +5,14 @@ investment portfolio (ASX, US, Cboe-AU, and crypto holdings) with live price
 lookups via yfinance and benchmark comparison, plus a React + TypeScript
 **dashboard** (Phase 2) in [`frontend/`](frontend/).
 
-> **Quick start (both halves):** run the backend (`python app.py`), then in
-> another terminal `cd frontend && npm install && npm run dev` and open
-> http://localhost:5173. See [Frontend](#frontend-phase-2) below.
+> **Easiest way to run it (macOS, no terminal typing):**
+> 1. Double-click **`setup.command`** once (first-time install + build).
+> 2. Double-click **`start.command`** whenever you want to use the app — it
+>    starts the server and opens http://127.0.0.1:5000 in your browser.
+>
+> Drag `start.command` to your Desktop or Dock for one-click access, and
+> bookmark http://127.0.0.1:5000. Close the small terminal window (or Ctrl-C)
+> to stop the app. Details under [Running the app](#running-the-app).
 
 ## Features
 
@@ -27,22 +32,39 @@ lookups via yfinance and benchmark comparison, plus a React + TypeScript
 | `portfolio.py` | Core logic: pricing, valuation, CSV ingestion, benchmarks |
 | `ledger.py` | Transaction ledger: FIFO cost base, realised gains, CGT, sync |
 | `config.py` | Configuration (env-overridable) |
+| `tax.py` | Australian resident income-tax estimate (for CGT) |
 | `requirements.txt` | Python dependencies |
+| `setup.command` / `start.command` | macOS one-click setup / launch |
+| `frontend/` | React + TypeScript dashboard (built into `frontend/dist`) |
 | `sample_holdings.csv` / `sample_benchmarks.csv` / `sample_transactions.csv` | Example uploads |
 
-## Setup
+## Running the app
 
-Requires Python 3.11+.
+Requires Python 3.11+ and Node 18+ (for the one-time frontend build).
+
+**macOS (one-click):** double-click `setup.command` once, then `start.command`
+to launch. That's it.
+
+**Any platform (manual):**
 
 ```bash
+# one-time setup
 python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+source .venv/bin/activate                 # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python app.py                       # serves on http://127.0.0.1:5000
+( cd frontend && npm install && npm run build )
+
+# run (serves API + frontend together)
+python app.py                             # http://127.0.0.1:5000
 ```
 
-The database (`portfolio.db`) and default "My Portfolio" are created on first
-run.
+`app.py` serves the built React app (`frontend/dist`) at the root, so the whole
+tool runs as **one process at one URL** — just open http://127.0.0.1:5000. The
+database (`portfolio.db`) and default "My Portfolio" are created on first run.
+
+> Working on the frontend? Run the Vite dev server for hot-reload
+> (`cd frontend && npm run dev`, http://localhost:5173) alongside
+> `FLASK_DEBUG=1 python app.py`. CORS is enabled for this.
 
 ### Configuration (optional)
 
@@ -290,20 +312,24 @@ allocation donut charts), **Holdings** (valued table), **Benchmarks**
 **CGT** (FY + taxable-income controls → realised gains, discount, and estimated
 tax), and **Manage** (CSV upload + a benchmark builder form).
 
+For everyday use it's **served by Flask** (see [Running the app](#running-the-app))
+— `python app.py` builds nothing, it just serves `frontend/dist`. For frontend
+development with hot-reload:
+
 ```bash
 cd frontend
 npm install
 npm run dev          # http://localhost:5173 (expects the backend on :5000)
 ```
 
-Other scripts: `npm run build` (typecheck + production build), `npm test`
-(Vitest unit tests for the formatters), `npm run preview` (serve the build).
+Other scripts: `npm run build` (typecheck + production build — run after any
+frontend change so the served app updates), `npm test` (Vitest unit tests),
+`npm run preview` (serve the build).
 
 - The API base URL defaults to `http://127.0.0.1:5000`; override with a
-  `VITE_API_URL` env var (e.g. in `frontend/.env`) if the backend runs
-  elsewhere. It uses the IPv4 loopback rather than `localhost` because Flask
-  binds `127.0.0.1` and `localhost` can resolve to IPv6 `::1` first.
-- CORS is enabled on the backend, so the dev server calls the API directly.
+  `VITE_API_URL` env var. It uses the IPv4 loopback rather than `localhost`
+  because Flask binds `127.0.0.1` and `localhost` can resolve to IPv6 `::1` first.
+- CORS is enabled so the dev server can call the API cross-origin.
 
 > If `npm install` fails with an `EACCES` cache error, your global npm cache has
 > root-owned files; run with a writable cache, e.g.
