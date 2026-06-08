@@ -23,6 +23,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import re
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
@@ -43,6 +44,11 @@ from portfolio import (
 BUY = "buy"
 SELL = "sell"
 CGT_DISCOUNT_DAYS = 365  # held strictly longer than 12 months
+
+# Tickers that are Cboe Australia (Chi-X) cross-quotes, which CMC lists as plain
+# AUD-priced codes. Mapped to the CBOE_AU exchange so pricing resolves correctly.
+# (Other bare codes default to ASX.)
+CBOE_AU_TICKERS = {"IQLT", "IVLU", "IMTM"}
 
 
 # --------------------------------------------------------------------------- #
@@ -216,6 +222,29 @@ def get_transactions(session: Session) -> list[dict]:
     return [t.to_dict() for t in txns]
 
 
+def _process_all(
+    grouped: dict[str, list[Leg]],
+) -> tuple[list[RealisedEvent], dict[str, list[Parcel]], list[str]]:
+    """Run FIFO per ticker, isolating failures.
+
+    A data issue on one ticker (e.g. an oversell from incomplete history) is
+    captured as a warning rather than aborting the whole portfolio.
+    """
+    events: list[RealisedEvent] = []
+    parcels_by: dict[str, list[Parcel]] = {}
+    warnings: list[str] = []
+    for ticker, legs in grouped.items():
+        try:
+            realised, parcels = fifo_process(ticker, legs)
+        except PortfolioError as exc:
+            warnings.append(str(exc))
+            continue
+        events.extend(realised)
+        if parcels:
+            parcels_by[ticker] = parcels
+    return events, parcels_by, warnings
+
+
 def compute_realised(
     session: Session,
     financial_year: str | None = None,
@@ -228,11 +257,7 @@ def compute_realised(
     of the additional tax the net gain attracts is added (see tax.py).
     """
     grouped = _legs_by_ticker(_actual_transactions(session))
-
-    events: list[RealisedEvent] = []
-    for ticker, legs in grouped.items():
-        realised, _ = fifo_process(ticker, legs)
-        events.extend(realised)
+    events, _, warnings = _process_all(grouped)
 
     if financial_year:
         start, end = _financial_year_bounds(financial_year)
@@ -284,18 +309,15 @@ def compute_realised(
         "events": [e.to_dict() for e in events],
         "by_currency": by_currency,
         "cgt_estimate": cgt_estimate,
+        "warnings": warnings,
     }
 
 
 def open_parcels(session: Session) -> dict[str, list[Parcel]]:
     """Current open parcels per ticker, derived from the transaction ledger."""
     grouped = _legs_by_ticker(_actual_transactions(session))
-    result: dict[str, list[Parcel]] = {}
-    for ticker, legs in grouped.items():
-        _, parcels = fifo_process(ticker, legs)
-        if parcels:
-            result[ticker] = parcels
-    return result
+    _, parcels_by, _ = _process_all(grouped)
+    return parcels_by
 
 
 # --------------------------------------------------------------------------- #
@@ -317,6 +339,113 @@ class ImportResult:
         }
 
 
+# --------------------------------------------------------------------------- #
+# CMC "Cash Transaction Summary" import
+# --------------------------------------------------------------------------- #
+# Trade rows look like:  "Bght 154 VGMF @ 64.6100 17284978"
+#                        "Sold 125 VGAD @ 80.0800 AUD 21591579"
+#                        "Bght 10 AAPL:US @ 257.4110 AUD 25664103"
+# Everything else (deposits, interest, dividends, transfers, balances) is noise.
+_CMC_TRADE_RE = re.compile(
+    r"^(?P<action>Bght|Sold)\s+"
+    r"(?P<qty>[\d,]+(?:\.\d+)?)\s+"
+    r"(?P<ticker>[A-Za-z0-9]+)"
+    r"(?::(?P<market>US))?\s+@\s+"
+    r"(?P<price>[\d,]+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+_CMC_REF_RE = re.compile(r"(\d+)\s*$")
+
+
+def _looks_like_cmc(fieldnames: list[str]) -> bool:
+    cols = {(f or "").strip().lower() for f in fieldnames}
+    return "description" in cols and ("debit $" in cols or "credit $" in cols)
+
+
+def parse_cmc_description(description: str) -> dict | None:
+    """Parse a CMC trade description into transaction fields, or None if the
+    row is not a trade (deposit, dividend, interest, transfer, balance, ...)."""
+    match = _CMC_TRADE_RE.match(description.strip())
+    if not match:
+        return None
+    ticker = match.group("ticker").upper()
+    market = (match.group("market") or "").upper()
+    if market == "US":
+        exchange = "US"  # priced in USD by yfinance; cost stays AUD
+    elif ticker in CBOE_AU_TICKERS:
+        exchange = "CBOE_AU"
+    else:
+        exchange = "ASX"
+    ref = _CMC_REF_RE.search(description.strip())
+    return {
+        "type": BUY if match.group("action").lower() == "bght" else SELL,
+        "ticker": ticker,
+        "exchange": exchange,
+        "quantity": float(match.group("qty").replace(",", "")),
+        "price_per_unit": float(match.group("price").replace(",", "")),
+        "reference": ref.group(1) if ref else None,
+    }
+
+
+def _cmc_fee(ttype: str, quantity: float, price: float, debit, credit) -> float:
+    """Derive brokerage from the cash leg: total consideration − qty × price.
+
+    On the dummy export these columns are blank (fee 0); on the real export the
+    Debit/Credit values let us recover the fee automatically.
+    """
+    consideration = quantity * price
+    raw = debit if ttype == BUY else credit
+    value = _parse_float(raw, "amount")  # tolerant; None if blank/garbage
+    if value is None:
+        return 0.0
+    fee = (value - consideration) if ttype == BUY else (consideration - value)
+    return round(fee, 4) if fee > 0 else 0.0
+
+
+def _ingest_cmc(session, reader, portfolio, replace, result: ImportResult) -> ImportResult:
+    """Import a CMC cash-transaction-summary CSV (auto-detected)."""
+    if replace:
+        portfolio.transactions.clear()
+        session.flush()
+
+    for line_no, row in enumerate(reader, start=2):
+        row = {(k or "").strip().lower(): v for k, v in row.items()}
+        description = (row.get("description") or "").strip()
+        parsed = parse_cmc_description(description)
+        if parsed is None:
+            result.skipped += 1  # non-trade row (expected, not an error)
+            continue
+        trade_date = _parse_date(_clean(row.get("date")))
+        if trade_date is None:
+            result.skipped += 1
+            result.errors.append(
+                {"row": line_no, "error": f"bad date for '{description[:40]}'"}
+            )
+            continue
+        portfolio.transactions.append(
+            Transaction(
+                ticker=parsed["ticker"],
+                exchange=parsed["exchange"],
+                type=parsed["type"],
+                quantity=parsed["quantity"],
+                price_per_unit=parsed["price_per_unit"],
+                fee=_cmc_fee(
+                    parsed["type"],
+                    parsed["quantity"],
+                    parsed["price_per_unit"],
+                    row.get("debit $"),
+                    row.get("credit $"),
+                ),
+                currency=None,  # CMC prices are in AUD (the base currency)
+                trade_date=trade_date,
+                reference=parsed["reference"],
+            )
+        )
+        result.added += 1
+    session.flush()
+    return result
+
+
 def ingest_transactions_csv(
     session: Session,
     raw: bytes | str,
@@ -325,9 +454,14 @@ def ingest_transactions_csv(
 ) -> ImportResult:
     """Ingest a transactions CSV into an actual portfolio.
 
-    Columns: ticker, type (buy/sell), quantity, price_per_unit, trade_date, and
-    optional exchange, fee, currency, reference. Rows are validated
-    individually; a bad row is recorded and skipped.
+    Two formats are accepted and auto-detected:
+      * Native: ticker, type (buy/sell), quantity, price_per_unit, trade_date,
+        and optional exchange, fee, currency, reference.
+      * CMC "Cash Transaction Summary" export (Date, Description, Debit $,
+        Credit $, Balance $) — trade rows are parsed from the Description and
+        non-trade rows (deposits, dividends, interest, transfers) are skipped.
+
+    Rows are validated individually; a bad row is recorded and skipped.
     """
     name = portfolio_name or config.DEFAULT_PORTFOLIO
     portfolio = ensure_portfolio(session, name, "actual")
@@ -335,6 +469,10 @@ def ingest_transactions_csv(
 
     text = raw.decode("utf-8-sig") if isinstance(raw, bytes) else raw
     reader = csv.DictReader(io.StringIO(text))
+
+    if _looks_like_cmc(reader.fieldnames or []):
+        return _ingest_cmc(session, reader, portfolio, replace, result)
+
     headers = {(f or "").strip().lower() for f in (reader.fieldnames or [])}
     required = {"ticker", "type", "quantity", "price_per_unit", "trade_date"}
     missing = required - headers
@@ -409,24 +547,14 @@ def sync_holdings_from_transactions(
     name = portfolio_name or config.DEFAULT_PORTFOLIO
     portfolio = ensure_portfolio(session, name, "actual")
 
-    grouped: dict[str, list[Leg]] = {}
-    for t in portfolio.transactions:
-        grouped.setdefault(t.ticker, []).append(
-            Leg(
-                type=t.type,
-                quantity=t.quantity,
-                price_per_unit=t.price_per_unit,
-                trade_date=t.trade_date,
-                fee=t.fee or 0.0,
-                currency=t.currency or config.BASE_CURRENCY,
-            )
-        )
-    # Remember a representative exchange/currency per ticker for the holding row.
+    grouped = _legs_by_ticker(portfolio.transactions)
+    # Remember a representative exchange per ticker for the holding row.
     meta = {t.ticker: t for t in portfolio.transactions}
 
+    _, parcels_by, warnings = _process_all(grouped)
+
     new_holdings: list[Holding] = []
-    for ticker, legs in grouped.items():
-        _, parcels = fifo_process(ticker, legs)
+    for ticker, parcels in parcels_by.items():
         template = meta[ticker]
         for parcel in parcels:
             new_holdings.append(
@@ -447,5 +575,6 @@ def sync_holdings_from_transactions(
     return {
         "portfolio": name,
         "holdings_created": len(new_holdings),
-        "tickers": sorted(grouped.keys()),
+        "tickers": sorted(parcels_by.keys()),
+        "warnings": warnings,
     }

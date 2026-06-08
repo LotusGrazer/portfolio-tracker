@@ -117,6 +117,16 @@ def test_realised_omits_tax_estimate_without_income(session, add_transaction):
     assert "estimated_tax" not in result["cgt_estimate"]
 
 
+def test_oversell_on_one_ticker_warns_but_others_compute(session, add_transaction):
+    # BAD oversells (no buy); AOV is clean. One bad ticker must not break the rest.
+    add_transaction("BAD", "sell", 10, 5.00, "2023-06-01")
+    add_transaction("AOV", "buy", 100, 2.00, "2022-01-01")
+    add_transaction("AOV", "sell", 100, 3.00, "2023-06-01")
+    result = ledger.compute_realised(session)
+    assert any("BAD" in w for w in result["warnings"])
+    assert result["cgt_estimate"]["total_realised_gain"] == 100.0  # AOV still counted
+
+
 # --------------------------------------------------------------------------- #
 # Sync holdings from ledger
 # --------------------------------------------------------------------------- #
@@ -181,7 +191,9 @@ def test_sync_endpoint_then_holdings(client):
     assert holdings[0]["quantity"] == 300
 
 
-def test_oversell_returns_400(client):
+def test_oversell_reported_as_warning_not_error(client):
+    # A data gap (oversell) is surfaced as a warning, not a hard failure, so the
+    # rest of the portfolio still reports.
     csv_data = (
         "ticker,type,quantity,price_per_unit,trade_date\n"
         "AOV,buy,50,2.00,2023-01-01\n"
@@ -189,5 +201,5 @@ def test_oversell_returns_400(client):
     )
     client.post("/transactions/upload", data=csv_data, content_type="text/csv")
     resp = client.get("/portfolio/realised")
-    assert resp.status_code == 400
-    assert "oversell" in resp.get_json()["error"]
+    assert resp.status_code == 200
+    assert any("oversell" in w for w in resp.get_json()["warnings"])

@@ -148,10 +148,12 @@ export interface Realised {
     { proceeds: number; cost_base: number; gain: number }
   >;
   cgt_estimate: CgtEstimate;
+  warnings: string[];
 }
 
 export interface SyncResult {
   portfolio: string;
   holdings_created: number;
   tickers: string[];
+  warnings: string[];
 }

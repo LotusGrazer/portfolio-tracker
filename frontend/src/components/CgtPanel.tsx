@@ -73,6 +73,16 @@ export function CgtPanel() {
 
       {error && <p className="negative">{error}</p>}
 
+      {data && data.warnings.length > 0 && (
+        <div className="disclaimer" style={{ marginBottom: "1rem" }}>
+          {data.warnings.map((w, i) => (
+            <div key={i} className="negative small">
+              ⚠️ {w}
+            </div>
+          ))}
+        </div>
+      )}
+
       {cgt && (
         <>
           <div className="cards">

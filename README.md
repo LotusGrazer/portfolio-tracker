@@ -138,6 +138,15 @@ the holdings snapshot, this **is** a full transaction log — record every buy a
 sell, and the FIFO engine derives your current parcels and realised gains. `fee`
 defaults to 0 (wired through cost base, so populate it later when you have it).
 
+**CMC "Cash Transaction Summary" export** — auto-detected on upload (no
+reformatting needed). Trade rows in the `Description` (`Bght`/`Sold`) are parsed
+for ticker, quantity, price, and reference; `:US` codes map to the US exchange
+and known Cboe-Australia codes (IQLT/IVLU/IMTM) to `CBOE_AU`; all other rows
+(deposits, dividends, interest, transfers, balances) are skipped. Brokerage is
+derived from the Debit/Credit columns when present. The file also contains
+dividend/distribution rows — not used yet, but useful for future total-return
+and franking work.
+
 ### Exchanges & tickers
 
 yfinance needs exchange-qualified symbols. The `exchange` column maps to the

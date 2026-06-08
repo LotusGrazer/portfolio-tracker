@@ -49,8 +49,11 @@ function LedgerControls({ onChanged }: { onChanged: () => void }) {
     setMessage(null);
     try {
       const res = await api.syncHoldings();
+      const warn = res.warnings.length
+        ? ` ${res.warnings.length} ticker(s) skipped: ${res.warnings.join("; ")}`
+        : "";
       setMessage(
-        `Rebuilt ${res.holdings_created} holding parcel(s) from ${res.tickers.length} ticker(s).`,
+        `Rebuilt ${res.holdings_created} holding parcel(s) from ${res.tickers.length} ticker(s).${warn}`,
       );
       onChanged();
     } catch (err) {
@@ -65,8 +68,10 @@ function LedgerControls({ onChanged }: { onChanged: () => void }) {
       <form className="chart-card" onSubmit={upload}>
         <h3>Import transactions (CSV)</h3>
         <p className="muted small">
-          Columns: ticker, type (buy/sell), quantity, price_per_unit, trade_date,
-          and optional exchange, fee, reference, currency.
+          Native columns: ticker, type (buy/sell), quantity, price_per_unit,
+          trade_date (+ optional exchange, fee, reference, currency). A CMC{" "}
+          <em>Cash Transaction Summary</em> export is auto-detected — trades are
+          parsed and deposits/dividends/interest are skipped.
         </p>
         <label className="field">
           <span>CSV file</span>
