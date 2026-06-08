@@ -1,8 +1,13 @@
-# Portfolio Tracker — Backend (Phase 1)
+# Portfolio Tracker
 
-A lightweight Flask + SQLite backend for tracking a household investment
-portfolio (ASX, US, and crypto holdings) with live price lookups via yfinance
-and benchmark comparison support. The React frontend lands in Phase 2.
+A lightweight Flask + SQLite **backend** (Phase 1) for tracking a household
+investment portfolio (ASX, US, Cboe-AU, and crypto holdings) with live price
+lookups via yfinance and benchmark comparison, plus a React + TypeScript
+**dashboard** (Phase 2) in [`frontend/`](frontend/).
+
+> **Quick start (both halves):** run the backend (`python app.py`), then in
+> another terminal `cd frontend && npm install && npm run dev` and open
+> http://localhost:5173. See [Frontend](#frontend-phase-2) below.
 
 ## Features
 
@@ -87,6 +92,25 @@ BTC,0.5,30000.00,2024-02-01,IBKR,cryptocurrency,CRYPTO,
   defaults to the base currency (AUD) — correct for anything you bought in AUD,
   including unhedged Cboe-AU ETFs whose AUD value floats with FX. Set it
   explicitly (e.g. `USD`) when you funded the purchase in the native currency.
+
+#### A holdings CSV is a snapshot of current positions — not a transaction log
+
+Each row is **a parcel you currently hold**. Values are computed as
+`current_price × quantity` and `cost_base_per_unit × quantity`, then summed.
+
+- **Bought the same ticker over time?** Use **one row per parcel**, each with its
+  own `quantity`, `cost_base_per_unit`, and `date_acquired`. They're summed for
+  totals while keeping per-parcel cost/date:
+
+  ```csv
+  AOV,500,2.50,2023-01-01,IBKR,stock,ASX,
+  AOV,300,3.10,2023-06-01,IBKR,stock,ASX,
+  ```
+
+- **Sold something?** Don't add sell rows or negative quantities. Record what you
+  **still hold** — reduce that parcel's `quantity`, or remove the row if you
+  exited. There is currently no realised-gain / sell tracking (see "Phase 3" for
+  a planned transaction ledger).
 
 **Benchmarks** (rows sharing a `name` form one benchmark):
 
@@ -202,6 +226,33 @@ A `warning` is returned if weights don't sum to 100%.
   correctly. FX rates (e.g. `USDAUD=X`) are fetched and cached like prices.
 - **No auth** by design for Phase 1 — keep behind localhost.
 
+## Frontend (Phase 2)
+
+A React + TypeScript dashboard (Vite, recharts) lives in [`frontend/`](frontend/).
+It consumes the API above and provides five tabs: **Overview** (summary cards +
+allocation donut charts), **Holdings** (valued table), **Benchmarks**
+(definitions), **Compare** (benchmark-vs-actual return chart + table), and
+**Manage** (CSV upload + a benchmark builder form).
+
+```bash
+cd frontend
+npm install
+npm run dev          # http://localhost:5173 (expects the backend on :5000)
+```
+
+Other scripts: `npm run build` (typecheck + production build), `npm test`
+(Vitest unit tests for the formatters), `npm run preview` (serve the build).
+
+- The API base URL defaults to `http://127.0.0.1:5000`; override with a
+  `VITE_API_URL` env var (e.g. in `frontend/.env`) if the backend runs
+  elsewhere. It uses the IPv4 loopback rather than `localhost` because Flask
+  binds `127.0.0.1` and `localhost` can resolve to IPv6 `::1` first.
+- CORS is enabled on the backend, so the dev server calls the API directly.
+
+> If `npm install` fails with an `EACCES` cache error, your global npm cache has
+> root-owned files; run with a writable cache, e.g.
+> `NPM_CONFIG_CACHE=/tmp/npm-cache npm install`.
+
 ## Known limitations
 
 - **Price returns only.** Comparison and gain/loss are capital returns; they
@@ -226,9 +277,21 @@ Short answer: no, and there's no benefit over yfinance.
   yfinance (Yahoo Finance) gives equivalent coverage for ASX, US, Cboe-AU
   cross-listings, FX, and crypto. Recommend staying with yfinance.
 
-## Phase 2 ideas (not yet built)
+## Phase 3: transaction ledger & CGT (planned)
 
-- React frontend consuming this API
+The current model tracks *current positions* (parcels), not transactions. A
+planned next phase adds a `transactions` table (buys **and** sells) and derives
+holdings from it, enabling:
+
+- Realised gains on sells, with a cost-base method (FIFO / average)
+- Australian CGT support: parcel-level cost base and the 12-month 50% discount
+- A transaction history view and import
+
+The schema already stores per-parcel `date_acquired` and `cost_base_per_unit`,
+which feed straight into this.
+
+## Other ideas (not yet built)
+
 - Fold a compact comparison into `/portfolio/summary`
 - Total-return (dividend-adjusted) performance
 - Sector breakdown (yfinance `.info` enrichment)
