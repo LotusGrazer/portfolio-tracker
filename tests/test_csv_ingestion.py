@@ -46,6 +46,14 @@ def test_missing_ticker_column_raises(session):
         pf.ingest_holdings_csv(session, "quantity,broker\n10,IBKR\n")
 
 
+def test_cmc_file_in_holdings_uploader_redirects(session):
+    # A CMC transaction export uploaded to the holdings importer should give a
+    # helpful redirect, not the generic "needs a ticker column" error.
+    cmc = "Date,Description,Debit $,Credit $,Balance $\n9/5/2020,OPENING BALANCE,,,0\n"
+    with pytest.raises(pf.PortfolioError, match="Transactions tab"):
+        pf.ingest_holdings_csv(session, cmc)
+
+
 def test_bad_rows_skipped_not_fatal(session):
     csv_data = (
         "ticker,quantity\n"

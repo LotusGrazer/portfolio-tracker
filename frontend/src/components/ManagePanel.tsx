@@ -46,8 +46,9 @@ function HoldingsUpload({ onChanged }: Props) {
     <form className="chart-card" onSubmit={submit}>
       <h3>Upload holdings (CSV)</h3>
       <p className="muted small">
-        Columns: ticker, quantity, cost_base_per_unit, date_acquired, broker,
-        asset_class, exchange, cost_currency.
+        A point-in-time snapshot. Columns: ticker, quantity, cost_base_per_unit,
+        date_acquired, broker, asset_class, exchange, cost_currency.{" "}
+        <em>Importing a CMC export? Use the Transactions tab instead.</em>
       </p>
       <label className="field">
         <span>CSV file</span>

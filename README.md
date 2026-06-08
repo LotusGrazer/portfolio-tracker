@@ -308,7 +308,8 @@ A React + TypeScript dashboard (Vite, recharts) lives in [`frontend/`](frontend/
 It consumes the API above and provides these tabs: **Overview** (summary cards +
 allocation donut charts), **Holdings** (valued table), **Benchmarks**
 (definitions), **Compare** (benchmark-vs-actual return chart + table),
-**Transactions** (ledger table + CSV import + "sync holdings from ledger"),
+**Transactions** (ledger table; import a CMC export or native CSV and build
+holdings from it in one step),
 **CGT** (FY + taxable-income controls → realised gains, discount, and estimated
 tax), and **Manage** (CSV upload + a benchmark builder form).
 

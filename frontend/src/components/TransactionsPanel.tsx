@@ -19,22 +19,32 @@ export function TransactionsPanel({ transactions, onChanged }: Props) {
 
 function LedgerControls({ onChanged }: { onChanged: () => void }) {
   const [file, setFile] = useState<File | null>(null);
-  const [replace, setReplace] = useState(false);
-  const [busy, setBusy] = useState<"upload" | "sync" | null>(null);
+  const [portfolio, setPortfolio] = useState("My Portfolio");
+  const [replace, setReplace] = useState(true);
+  const [rebuild, setRebuild] = useState(true);
+  const [busy, setBusy] = useState<"import" | "sync" | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function upload(e: React.FormEvent) {
+  async function importTxns(e: React.FormEvent) {
     e.preventDefault();
     if (!file) return;
-    setBusy("upload");
+    const name = portfolio.trim() || undefined;
+    setBusy("import");
     setError(null);
     setResult(null);
     setMessage(null);
     try {
-      const res = await api.uploadTransactions(file, undefined, replace);
+      const res = await api.uploadTransactions(file, name, replace);
       setResult(res);
+      if (rebuild) {
+        const synced = await api.syncHoldings(name);
+        const warn = synced.warnings.length
+          ? ` (${synced.warnings.length} skipped: ${synced.warnings.join("; ")})`
+          : "";
+        setMessage(`Built ${synced.holdings_created} holding parcel(s).${warn}`);
+      }
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -48,7 +58,7 @@ function LedgerControls({ onChanged }: { onChanged: () => void }) {
     setError(null);
     setMessage(null);
     try {
-      const res = await api.syncHoldings();
+      const res = await api.syncHoldings(portfolio.trim() || undefined);
       const warn = res.warnings.length
         ? ` ${res.warnings.length} ticker(s) skipped: ${res.warnings.join("; ")}`
         : "";
@@ -65,13 +75,14 @@ function LedgerControls({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="manage-grid" style={{ marginBottom: "1.5rem" }}>
-      <form className="chart-card" onSubmit={upload}>
+      <form className="chart-card" onSubmit={importTxns}>
         <h3>Import transactions (CSV)</h3>
         <p className="muted small">
-          Native columns: ticker, type (buy/sell), quantity, price_per_unit,
-          trade_date (+ optional exchange, fee, reference, currency). A CMC{" "}
-          <em>Cash Transaction Summary</em> export is auto-detected — trades are
-          parsed and deposits/dividends/interest are skipped.
+          Upload a <strong>CMC Cash Transaction Summary</strong> export directly
+          (auto-detected — trades are parsed; deposits/dividends/interest are
+          skipped). Or a native CSV: ticker, type (buy/sell), quantity,
+          price_per_unit, trade_date (+ optional exchange, fee, reference,
+          currency).
         </p>
         <label className="field">
           <span>CSV file</span>
@@ -81,22 +92,36 @@ function LedgerControls({ onChanged }: { onChanged: () => void }) {
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
         </label>
+        <label className="field">
+          <span>Portfolio name</span>
+          <input value={portfolio} onChange={(e) => setPortfolio(e.target.value)} />
+        </label>
         <label className="checkbox">
           <input
             type="checkbox"
             checked={replace}
             onChange={(e) => setReplace(e.target.checked)}
           />
-          <span>Replace existing transactions</span>
+          <span>Replace existing transactions in this portfolio</span>
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={rebuild}
+            onChange={(e) => setRebuild(e.target.checked)}
+          />
+          <span>Build holdings from these transactions (recommended)</span>
         </label>
         <button type="submit" disabled={!file || busy !== null}>
-          {busy === "upload" ? "Importing…" : "Import"}
+          {busy === "import" ? "Importing…" : "Import"}
         </button>
         {result && (
           <div className="result small">
             <p className="positive">
-              Added {result.added}, skipped {result.skipped}
+              Added {result.added} trade(s), skipped {result.skipped} non-trade
+              row(s) → {result.portfolio}
             </p>
+            {message && <p className="positive">{message}</p>}
             {result.errors.length > 0 && (
               <ul>
                 {result.errors.map((e) => (
@@ -111,15 +136,16 @@ function LedgerControls({ onChanged }: { onChanged: () => void }) {
       </form>
 
       <div className="chart-card">
-        <h3>Sync holdings from ledger</h3>
+        <h3>Rebuild holdings from ledger</h3>
         <p className="muted small">
-          Rebuilds your Holdings from the ledger's open parcels (FIFO), one row
-          per parcel. Replaces any manually-entered holdings for this portfolio.
+          Rebuilds the named portfolio's Holdings from its open parcels (FIFO),
+          one row per parcel. Useful after manually editing transactions.
+          Replaces any manually-entered holdings for that portfolio.
         </p>
         <button type="button" onClick={sync} disabled={busy !== null}>
-          {busy === "sync" ? "Syncing…" : "Sync holdings"}
+          {busy === "sync" ? "Rebuilding…" : "Rebuild holdings"}
         </button>
-        {message && <p className="positive small">{message}</p>}
+        {!result && message && <p className="positive small">{message}</p>}
       </div>
 
       {error && <p className="negative small">{error}</p>}

@@ -351,9 +351,14 @@ def ingest_holdings_csv(
     result = IngestResult(portfolio=name)
 
     reader = _decode_csv(raw)
-    if reader.fieldnames is None or "ticker" not in {
-        f.strip().lower() for f in (reader.fieldnames or [])
-    }:
+    cols = {(f or "").strip().lower() for f in (reader.fieldnames or [])}
+    if "description" in cols and ("debit $" in cols or "credit $" in cols):
+        raise PortfolioError(
+            "This looks like a CMC transaction export, not a holdings file. "
+            "Upload it under the Transactions tab (the CMC format is detected "
+            "automatically) — your current holdings are then built from it."
+        )
+    if reader.fieldnames is None or "ticker" not in cols:
         raise PortfolioError(
             "CSV must include a 'ticker' column. "
             "Expected header: ticker,quantity,cost_base_per_unit,"
