@@ -1,0 +1,4 @@
+name,ticker,weight_pct,exchange
+ASX200,VAS,100,ASX
+60/40 ASX/US,VAS,60,ASX
+60/40 ASX/US,VGS,40,ASX

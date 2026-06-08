@@ -1,0 +1,6 @@
+ticker,quantity,cost_base_per_unit,date_acquired,broker,asset_class,exchange
+AOV,500,2.50,2023-06-15,IBKR,stock,ASX
+IQLT,100,45.20,2024-01-10,CMC,etf,ASX
+VAS,1000,90.00,2022-03-01,Commsec,etf,ASX
+AAPL,20,150.00,2023-09-01,IBKR,stock,US
+BTC,0.5,30000.00,2024-02-01,IBKR,cryptocurrency,CRYPTO
