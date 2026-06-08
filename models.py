@@ -22,6 +22,11 @@ from sqlalchemy.orm import (
 )
 
 
+def utcnow() -> dt.datetime:
+    """Naive UTC timestamp (avoids the deprecated ``datetime.utcnow()``)."""
+    return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -39,7 +44,7 @@ class Portfolio(Base):
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False, default="actual")
     created_date: Mapped[dt.datetime] = mapped_column(
-        DateTime, default=dt.datetime.utcnow
+        DateTime, default=utcnow
     )
 
     holdings: Mapped[list["Holding"]] = relationship(
@@ -116,7 +121,7 @@ class Price(Base):
     price: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str | None] = mapped_column(String)
     last_updated: Mapped[dt.datetime] = mapped_column(
-        DateTime, default=dt.datetime.utcnow
+        DateTime, default=utcnow
     )
 
     def to_dict(self) -> dict:

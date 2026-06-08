@@ -49,6 +49,26 @@ All settable via environment variables — see `config.py`:
 | `PRICE_CACHE_TTL_MINUTES` | `15` | How long cached prices stay fresh |
 | `DEFAULT_PORTFOLIO` | `My Portfolio` | Portfolio uploads default to |
 
+## Testing
+
+```bash
+source .venv/bin/activate
+pip install -r requirements-dev.txt   # installs pytest
+pytest                                # 52 tests, runs in <1s
+```
+
+The suite is fully **offline and isolated**:
+
+- yfinance is mocked at one seam (`portfolio._fetch_live_price`) via a
+  deterministic `FakeMarket` fixture in `conftest.py` — no test hits the
+  network.
+- Tests run against a throwaway temp SQLite database; your real
+  `portfolio.db` is never touched. Tables are reset before each test.
+
+Coverage spans symbol resolution, CSV ingestion (validation, defaults, bad-row
+handling, replace), pricing/FX/caching (including TTL expiry and
+stale-if-error), the summary calculations, benchmarks, and every HTTP endpoint.
+
 ## CSV formats
 
 **Holdings** (`exchange` is optional, defaults to `ASX`):

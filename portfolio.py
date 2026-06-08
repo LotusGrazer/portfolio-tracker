@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 import config
 from database import ensure_portfolio
-from models import Holding, Portfolio, Price
+from models import Holding, Portfolio, Price, utcnow
 
 
 # --------------------------------------------------------------------------- #
@@ -106,7 +106,7 @@ def _get_or_refresh_symbol(
     Returns ``None`` only when there is no cached value and the live lookup
     fails.
     """
-    now = dt.datetime.utcnow()
+    now = utcnow()
     ttl = dt.timedelta(minutes=config.PRICE_CACHE_TTL_MINUTES)
     row = session.query(Price).filter_by(ticker=symbol).one_or_none()
 
@@ -340,8 +340,8 @@ def ingest_holdings_csv(
         )
 
     if replace:
-        for h in list(portfolio.holdings):
-            session.delete(h)
+        # delete-orphan cascade removes the cleared holdings on flush.
+        portfolio.holdings.clear()
         session.flush()
 
     # ``enumerate`` from 2 so row numbers match what a human sees in a
@@ -363,17 +363,19 @@ def ingest_holdings_csv(
             result.errors.append({"row": line_no, "error": str(exc)})
             continue
 
-        holding = Holding(
-            portfolio_id=portfolio.id,
-            ticker=ticker.upper(),
-            exchange=(_clean(row.get("exchange")) or DEFAULT_EXCHANGE).upper(),
-            quantity=quantity,
-            cost_base_per_unit=cost,
-            date_acquired=date_acquired,
-            broker=_clean(row.get("broker")),
-            asset_class=(_clean(row.get("asset_class")) or "stock"),
+        # Append through the relationship so the in-session collection stays
+        # consistent (the FK is set from the parent automatically).
+        portfolio.holdings.append(
+            Holding(
+                ticker=ticker.upper(),
+                exchange=(_clean(row.get("exchange")) or DEFAULT_EXCHANGE).upper(),
+                quantity=quantity,
+                cost_base_per_unit=cost,
+                date_acquired=date_acquired,
+                broker=_clean(row.get("broker")),
+                asset_class=(_clean(row.get("asset_class")) or "stock"),
+            )
         )
-        session.add(holding)
         result.added += 1
 
     session.flush()
@@ -511,24 +513,19 @@ def _upsert_benchmark(
     if portfolio is None:
         portfolio = Portfolio(name=name, type="benchmark")
         session.add(portfolio)
-        session.flush()
-    else:
-        for h in list(portfolio.holdings):
-            session.delete(h)
-        session.flush()
 
-    total_weight = 0.0
-    for c in constituents:
-        session.add(
-            Holding(
-                portfolio_id=portfolio.id,
-                ticker=c["ticker"],
-                exchange=c["exchange"],
-                weight_pct=c["weight_pct"],
-            )
+    # Assigning the collection replaces any existing constituents; the
+    # delete-orphan cascade removes the old rows on flush.
+    portfolio.holdings = [
+        Holding(
+            ticker=c["ticker"],
+            exchange=c["exchange"],
+            weight_pct=c["weight_pct"],
         )
-        total_weight += c["weight_pct"]
+        for c in constituents
+    ]
     session.flush()
+    total_weight = sum(c["weight_pct"] for c in constituents)
 
     result = {
         **portfolio.to_dict(),
