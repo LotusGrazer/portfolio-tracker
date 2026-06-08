@@ -175,14 +175,19 @@ def value_holding(session: Session, holding: Holding) -> dict:
         else None
     )
 
+    # Cost base may be recorded in a different currency than the price. An AUD
+    # investor who paid AUD for an (unhedged) USD-priced ETF has an AUD cost
+    # base but a USD-priced market value, so the two sides use separate FX.
+    cost_currency = holding.cost_currency or config.BASE_CURRENCY
+    cost_fx = get_fx_rate(session, cost_currency)
     cost_total_native = (
         holding.cost_base_per_unit * qty
         if holding.cost_base_per_unit is not None
         else None
     )
     cost_total_base = (
-        cost_total_native * fx
-        if (cost_total_native is not None and fx is not None)
+        cost_total_native * cost_fx
+        if (cost_total_native is not None and cost_fx is not None)
         else None
     )
 
@@ -210,6 +215,7 @@ def value_holding(session: Session, holding: Holding) -> dict:
             "market_value": market_value_native,
             "market_value_base": market_value_base,
             "cost_base_total": cost_total_native,
+            "cost_base_currency": cost_currency,
             "cost_base_total_base": cost_total_base,
             "gain_loss_base": gain,
             "gain_loss_pct": gain_pct,
@@ -321,6 +327,11 @@ def _clean(value: str | None) -> str | None:
     return value or None
 
 
+def _upper_or_none(value: str | None) -> str | None:
+    cleaned = _clean(value)
+    return cleaned.upper() if cleaned else None
+
+
 def ingest_holdings_csv(
     session: Session,
     raw: bytes | str,
@@ -380,6 +391,7 @@ def ingest_holdings_csv(
                 exchange=(_clean(row.get("exchange")) or DEFAULT_EXCHANGE).upper(),
                 quantity=quantity,
                 cost_base_per_unit=cost,
+                cost_currency=_upper_or_none(row.get("cost_currency")),
                 date_acquired=date_acquired,
                 broker=_clean(row.get("broker")),
                 asset_class=(_clean(row.get("asset_class")) or "stock"),

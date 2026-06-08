@@ -22,8 +22,8 @@ def test_value_holding_aud(session, add_holding):
 
 
 def test_value_holding_usd_converted_to_aud(session, add_holding):
-    # AAPL: 300 USD * 20 = 6000 USD; FX 1.5 -> 9000 AUD.
-    h = add_holding("AAPL", quantity=20, exchange="US", cost=150.0)
+    # AAPL: 300 USD * 20 = 6000 USD; FX 1.5 -> 9000 AUD. Cost funded in USD.
+    h = add_holding("AAPL", quantity=20, exchange="US", cost=150.0, cost_currency="USD")
     result = pf.value_holding(session, h)
     assert result["market_value"] == 6000.0  # native USD
     assert result["market_value_base"] == 9000.0  # AUD
@@ -31,6 +31,41 @@ def test_value_holding_usd_converted_to_aud(session, add_holding):
     assert result["cost_base_total_base"] == 4500.0
     assert result["gain_loss_base"] == 4500.0
     assert result["gain_loss_pct"] == 100.0
+
+
+def test_cost_currency_defaults_to_base(session, add_holding):
+    # US-priced holding, cost recorded with no currency -> treated as AUD (base).
+    # MV: 10 * 300 USD * 1.5 = 4500 AUD; cost: 10 * 100 (AUD) = 1000 AUD.
+    h = add_holding("AAPL", quantity=10, exchange="US", cost=100.0)
+    result = pf.value_holding(session, h)
+    assert result["cost_base_currency"] == "AUD"
+    assert result["market_value_base"] == 4500.0
+    assert result["cost_base_total_base"] == 1000.0
+    assert result["gain_loss_base"] == 3500.0
+
+
+def test_cost_currency_explicit_usd(session, add_holding):
+    # Same holding, but cost was funded in USD -> cost FX-converted too.
+    # cost: 10 * 100 USD * 1.5 = 1500 AUD.
+    h = add_holding("AAPL", quantity=10, exchange="US", cost=100.0, cost_currency="USD")
+    result = pf.value_holding(session, h)
+    assert result["cost_base_currency"] == "USD"
+    assert result["cost_base_total_base"] == 1500.0
+    assert result["gain_loss_base"] == 3000.0
+
+
+def test_cboe_au_holding_paid_in_aud(session, add_holding, market):
+    # Unhedged Cboe-AU ETF: priced off the US listing (USD), but bought in AUD.
+    market.prices["IQLT"] = (50.0, "USD")
+    h = add_holding("IQLT", quantity=10, exchange="CBOE_AU", cost=40.0)
+    result = pf.value_holding(session, h)
+    assert result["symbol"] == "IQLT"
+    assert result["price_currency"] == "USD"
+    # MV: 10 * 50 USD * 1.5 = 750 AUD; cost: 10 * 40 AUD = 400 AUD.
+    assert result["market_value_base"] == 750.0
+    assert result["cost_base_currency"] == "AUD"
+    assert result["cost_base_total_base"] == 400.0
+    assert result["gain_loss_base"] == 350.0
 
 
 def test_get_fx_rate_same_currency_is_one(session):

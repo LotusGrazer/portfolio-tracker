@@ -103,6 +103,18 @@ def test_custom_portfolio_created(session):
     assert session.query(Portfolio).filter_by(name="Wife", type="actual").one()
 
 
+def test_cost_currency_column_parsed(session):
+    pf.ingest_holdings_csv(
+        session,
+        "ticker,quantity,cost_base_per_unit,cost_currency\n"
+        "AAPL,10,100,usd\n"  # lowercased -> normalised to USD
+        "VAS,10,90,\n",  # blank -> None (defaults to base at valuation time)
+    )
+    by_ticker = {h.ticker: h for h in session.query(Holding).all()}
+    assert by_ticker["AAPL"].cost_currency == "USD"
+    assert by_ticker["VAS"].cost_currency is None
+
+
 def test_bom_and_thousands_separator(session):
     # utf-8 BOM prefix + comma thousands separator in quantity.
     raw = "﻿ticker,quantity\nAOV,\"1,500\"\n".encode("utf-8")

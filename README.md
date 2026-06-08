@@ -72,14 +72,21 @@ comparison (period returns, FX, weighting), and every HTTP endpoint.
 
 ## CSV formats
 
-**Holdings** (`exchange` is optional, defaults to `ASX`):
+**Holdings** (`exchange` and `cost_currency` are optional):
 
 ```csv
-ticker,quantity,cost_base_per_unit,date_acquired,broker,asset_class,exchange
-AOV,500,2.50,2023-06-15,IBKR,stock,ASX
-AAPL,20,150.00,2023-09-01,IBKR,stock,US
-BTC,0.5,30000.00,2024-02-01,IBKR,cryptocurrency,CRYPTO
+ticker,quantity,cost_base_per_unit,date_acquired,broker,asset_class,exchange,cost_currency
+AOV,500,2.50,2023-06-15,IBKR,stock,ASX,
+IQLT,100,45.20,2024-01-10,CMC,etf,CBOE_AU,
+AAPL,20,150.00,2023-09-01,IBKR,stock,US,USD
+BTC,0.5,30000.00,2024-02-01,IBKR,cryptocurrency,CRYPTO,
 ```
+
+- `exchange` defaults to `ASX`.
+- `cost_currency` is the currency you **paid** in. Leave it blank and it
+  defaults to the base currency (AUD) — correct for anything you bought in AUD,
+  including unhedged Cboe-AU ETFs whose AUD value floats with FX. Set it
+  explicitly (e.g. `USD`) when you funded the purchase in the native currency.
 
 **Benchmarks** (rows sharing a `name` form one benchmark):
 
@@ -109,9 +116,10 @@ right symbol automatically:
 the value is FX-converted to AUD. Use this exchange for them; `ASX` will not
 find them.
 
-> Note: for `CBOE_AU` holdings the `cost_base_per_unit` is currently assumed to
-> be in USD (the native currency of the underlying listing). If you record your
-> cost base in AUD, see "Known limitations" below.
+These ETFs are typically **unhedged**, so their AUD value moves with USD/AUD —
+which is exactly what pricing them off the US listing (USD) and FX-converting to
+AUD produces. Since you pay AUD for them, leave `cost_currency` blank (defaults
+to AUD) so gain/loss is measured against what you actually paid.
 
 ## API reference
 
@@ -188,21 +196,22 @@ A `warning` is returned if weights don't sum to 100%.
 - **Stale-if-error pricing**: if yfinance is unreachable, the last cached price
   is used rather than failing the request. A bad ticker leaves that holding's
   values as `null` instead of breaking the whole response.
-- **Currencies**: cost base is assumed to be in the instrument's native
-  currency. FX rates (e.g. `USDAUD=X`) are fetched and cached like prices.
+- **Currencies**: market value uses the price currency; cost base uses
+  `cost_currency` (default: base currency). The two sides are FX-converted
+  independently, so an AUD-paid, USD-priced unhedged ETF reports gain/loss
+  correctly. FX rates (e.g. `USDAUD=X`) are fetched and cached like prices.
 - **No auth** by design for Phase 1 — keep behind localhost.
 
 ## Known limitations
 
-- **Cost base currency for `CBOE_AU` holdings.** Cost base is assumed to be in
-  the instrument's *native* currency (USD for Cboe-quoted US ETFs). If you
-  bought them on Cboe Australia in AUD, the gain/loss in `/holdings` and
-  `/portfolio/summary` will be off by the FX factor. (The `/benchmarks/compare`
-  numbers are unaffected — they use price returns, not cost base.) A per-holding
-  `cost_currency` field is the planned fix.
 - **Price returns only.** Comparison and gain/loss are capital returns; they
   exclude dividends/distributions, so they understate total return for income
   funds.
+- **Hedged funds.** Pricing assumes a fund's AUD value tracks its native
+  (USD) price via FX — true for *unhedged* funds. A currency-*hedged* fund
+  would not move with FX, so its market value would be miscalculated. None of
+  the current sample holdings are hedged; flag any hedged holdings if you add
+  them.
 
 ## Can I use data from the Apple Stocks app?
 
@@ -221,7 +230,7 @@ Short answer: no, and there's no benefit over yfinance.
 
 - React frontend consuming this API
 - Fold a compact comparison into `/portfolio/summary`
-- Total-return (dividend-adjusted) performance and a `cost_currency` field
+- Total-return (dividend-adjusted) performance
 - Sector breakdown (yfinance `.info` enrichment)
 - A scheduled background price refresher (logic in `portfolio.py` is already
   framework-agnostic to support this)

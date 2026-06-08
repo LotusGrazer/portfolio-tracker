@@ -85,6 +85,11 @@ class Holding(Base):
     # Actual-holding fields
     quantity: Mapped[float | None] = mapped_column(Float)
     cost_base_per_unit: Mapped[float | None] = mapped_column(Float)
+    # Currency the cost base was paid in. NULL means "use the base currency"
+    # (e.g. AUD) — typical for an AUD investor who paid AUD, including for
+    # Cboe-AU cross-quoted ETFs. Set explicitly (e.g. USD) when you funded the
+    # purchase in the instrument's native currency.
+    cost_currency: Mapped[str | None] = mapped_column(String)
     date_acquired: Mapped[dt.date | None] = mapped_column(Date)
     broker: Mapped[str | None] = mapped_column(String)
     asset_class: Mapped[str | None] = mapped_column(String)
@@ -102,6 +107,7 @@ class Holding(Base):
             "exchange": self.exchange,
             "quantity": self.quantity,
             "cost_base_per_unit": self.cost_base_per_unit,
+            "cost_currency": self.cost_currency,
             "date_acquired": self.date_acquired.isoformat()
             if self.date_acquired
             else None,

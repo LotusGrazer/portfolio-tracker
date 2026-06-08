@@ -7,8 +7,8 @@ def test_summary_totals_and_breakdowns(session, add_holding):
     # AAPL: 10 * 300 USD * 1.5   = 4500 AUD
     add_holding("VAS", quantity=10, exchange="ASX", cost=90.0, asset_class="etf",
                 broker="Commsec")
-    add_holding("AAPL", quantity=10, exchange="US", cost=150.0, asset_class="stock",
-                broker="IBKR")
+    add_holding("AAPL", quantity=10, exchange="US", cost=150.0, cost_currency="USD",
+                asset_class="stock", broker="IBKR")
 
     summary = pf.portfolio_summary(session)
     assert summary["base_currency"] == "AUD"

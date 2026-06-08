@@ -114,7 +114,7 @@ def client():
 def add_holding(session):
     """Add an actual holding to the default portfolio and return it."""
 
-    def _add(ticker, quantity, exchange="ASX", cost=None, **kwargs):
+    def _add(ticker, quantity, exchange="ASX", cost=None, cost_currency=None, **kwargs):
         portfolio = ensure_portfolio(session, config.DEFAULT_PORTFOLIO, "actual")
         holding = Holding(
             portfolio_id=portfolio.id,
@@ -122,6 +122,7 @@ def add_holding(session):
             exchange=exchange,
             quantity=quantity,
             cost_base_per_unit=cost,
+            cost_currency=cost_currency,
             asset_class=kwargs.get("asset_class", "stock"),
             broker=kwargs.get("broker"),
         )
