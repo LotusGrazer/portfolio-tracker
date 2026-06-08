@@ -223,18 +223,22 @@ Ingest a transactions CSV (multipart `file` or raw body). Same `portfolio` and
 `replace` params as `/holdings/upload`. Bad rows are reported and skipped.
 
 ### `GET /portfolio/realised`
-Realised gains via FIFO, with a CGT-discount estimate. Optional
-`?financial_year=2023-24` (Australian FY, 1 Jul–30 Jun) filters by sell date.
+Realised gains via FIFO, with a CGT-discount estimate. Optional params:
+`financial_year=2023-24` (Australian FY, 1 Jul–30 Jun; filters by sell date) and
+`taxable_income=120000` (your income excluding gains, for a tax estimate).
 
 ```bash
-curl "http://127.0.0.1:5000/portfolio/realised?financial_year=2023-24"
+curl "http://127.0.0.1:5000/portfolio/realised?financial_year=2023-24&taxable_income=120000"
 ```
 
 Returns each realised event (matched buy/sell parcels, gain, and
 `cgt_discount_eligible`), totals grouped by currency, and a `cgt_estimate`
-(total/short-term/eligible gains, estimated 50% discount, net). **The CGT figure
-is an informational estimate, not tax advice** — it doesn't model capital-loss
-offset ordering or carried-forward losses.
+(total/short-term/eligible gains, estimated 50% discount, net). When
+`taxable_income` is supplied, `cgt_estimate.estimated_tax` adds the marginal tax
+the net gain attracts, using FY-aware resident brackets + Medicare levy
+([`tax.py`](tax.py)). **All CGT/tax figures are informational estimates, not tax
+advice** — they ignore capital-loss offset ordering, carried-forward losses,
+offsets, and household/partner splitting.
 
 ### `POST /transactions/sync-holdings`
 Rebuilds the portfolio's holdings from the ledger's open (FIFO) parcels — one
@@ -272,10 +276,12 @@ A `warning` is returned if weights don't sum to 100%.
 ## Frontend (Phase 2)
 
 A React + TypeScript dashboard (Vite, recharts) lives in [`frontend/`](frontend/).
-It consumes the API above and provides five tabs: **Overview** (summary cards +
+It consumes the API above and provides these tabs: **Overview** (summary cards +
 allocation donut charts), **Holdings** (valued table), **Benchmarks**
-(definitions), **Compare** (benchmark-vs-actual return chart + table), and
-**Manage** (CSV upload + a benchmark builder form).
+(definitions), **Compare** (benchmark-vs-actual return chart + table),
+**Transactions** (ledger table + CSV import + "sync holdings from ledger"),
+**CGT** (FY + taxable-income controls → realised gains, discount, and estimated
+tax), and **Manage** (CSV upload + a benchmark builder form).
 
 ```bash
 cd frontend
@@ -329,12 +335,20 @@ A `transactions` table (buys **and** sells) with a FIFO cost-base engine
 - **Realised gains** per matched parcel, with Australian-FY filtering.
 - **CGT discount**: parcels held > 12 months flagged for the 50% discount; a
   simplified net-gain estimate (with caveats — not tax advice).
+- **Tax estimate**: with an optional taxable-income input, estimates the
+  marginal tax the net gain attracts (FY-aware resident brackets + Medicare
+  levy — see [`tax.py`](tax.py)).
 - **Sync to holdings**: derive current parcels from the ledger into
   `portfolio_holdings`, so all existing views work off your real trade history.
 
-See the `/transactions/*` and `/portfolio/realised` endpoints above. **Still to
-come:** a Transactions / CGT tab in the frontend, and per-trade-date FX for
-exact AUD CGT on foreign-currency trades.
+Surfaced in the **Transactions** and **CGT** frontend tabs and the
+`/transactions/*` / `/portfolio/realised` endpoints above.
+
+> **Future:** the 50% CGT discount is expected to be replaced by an
+> inflation/indexation method. When that lands, the discount logic in
+> `ledger.py` (and the net gain fed into `tax.py`) will need a new calculation
+> path; the marginal-tax step is unaffected. Not modelled yet. Also pending:
+> per-trade-date FX for exact AUD CGT on foreign-currency trades.
 
 ## Other ideas (not yet built)
 

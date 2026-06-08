@@ -1,20 +1,37 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api/client";
-import type { Benchmark, Comparison, Holding, Summary } from "./api/types";
+import type {
+  Benchmark,
+  Comparison,
+  Holding,
+  Summary,
+  Transaction,
+} from "./api/types";
 import { AllocationCharts } from "./components/AllocationCharts";
 import { BenchmarkComparison } from "./components/BenchmarkComparison";
 import { BenchmarksList } from "./components/BenchmarksList";
+import { CgtPanel } from "./components/CgtPanel";
 import { HoldingsTable } from "./components/HoldingsTable";
 import { ManagePanel } from "./components/ManagePanel";
 import { SummaryCards } from "./components/SummaryCards";
+import { TransactionsPanel } from "./components/TransactionsPanel";
 
-type Tab = "overview" | "holdings" | "benchmarks" | "compare" | "manage";
+type Tab =
+  | "overview"
+  | "holdings"
+  | "benchmarks"
+  | "compare"
+  | "transactions"
+  | "cgt"
+  | "manage";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "holdings", label: "Holdings" },
   { id: "benchmarks", label: "Benchmarks" },
   { id: "compare", label: "Compare" },
+  { id: "transactions", label: "Transactions" },
+  { id: "cgt", label: "CGT" },
   { id: "manage", label: "Manage" },
 ];
 
@@ -23,6 +40,7 @@ export default function App() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [comparison, setComparison] = useState<Comparison | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,14 +52,16 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const [s, h, b] = await Promise.all([
+      const [s, h, b, t] = await Promise.all([
         api.summary(),
         api.holdings(),
         api.benchmarks(),
+        api.transactions(),
       ]);
       setSummary(s);
       setHoldings(h);
       setBenchmarks(b);
+      setTransactions(t);
       setUpdatedAt(new Date());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -137,6 +157,13 @@ export default function App() {
               <HoldingsTable holdings={holdings} baseCurrency={baseCurrency} />
             )}
             {tab === "benchmarks" && <BenchmarksList benchmarks={benchmarks} />}
+            {tab === "transactions" && (
+              <TransactionsPanel
+                transactions={transactions}
+                onChanged={handleChanged}
+              />
+            )}
+            {tab === "cgt" && <CgtPanel />}
             {tab === "compare" && (
               <>
                 {cmpLoading && <p className="muted">Computing returns…</p>}

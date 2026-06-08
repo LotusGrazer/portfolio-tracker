@@ -97,6 +97,26 @@ def test_compute_realised_groups_by_currency(session, add_transaction):
     assert result["by_currency"]["USD"]["gain"] == 500.0
 
 
+def test_realised_includes_tax_estimate_when_income_given(session, add_transaction):
+    add_transaction("AOV", "buy", 1000, 2.00, "2022-01-01")
+    add_transaction("AOV", "sell", 1000, 3.00, "2023-12-01")  # +1000 gain, eligible
+    # net capital gain = 1000 - 500 discount = 500
+    result = ledger.compute_realised(
+        session, financial_year="2023-24", taxable_income=100_000
+    )
+    cgt = result["cgt_estimate"]
+    assert cgt["estimated_net_capital_gain"] == 500.0
+    # FY 2023-24 uses the 32.5% bracket at $100k: 500 @ 32.5% + 2% MC = 172.5
+    assert cgt["estimated_tax"]["additional_tax"] == pytest.approx(172.5)
+
+
+def test_realised_omits_tax_estimate_without_income(session, add_transaction):
+    add_transaction("AOV", "buy", 100, 2.00, "2022-01-01")
+    add_transaction("AOV", "sell", 100, 3.00, "2023-06-01")
+    result = ledger.compute_realised(session)
+    assert "estimated_tax" not in result["cgt_estimate"]
+
+
 # --------------------------------------------------------------------------- #
 # Sync holdings from ledger
 # --------------------------------------------------------------------------- #

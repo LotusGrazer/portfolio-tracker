@@ -38,6 +38,21 @@ export function gainClass(value: number | null | undefined): string {
   return value > 0 ? "positive" : "negative";
 }
 
+// Australian financial year (1 Jul – 30 Jun) label, e.g. "2024-25".
+export function currentFinancialYear(now = new Date()): string {
+  const y = now.getFullYear();
+  const start = now.getMonth() >= 6 ? y : y - 1; // getMonth: July = 6
+  return `${start}-${String((start + 1) % 100).padStart(2, "0")}`;
+}
+
+export function recentFinancialYears(count = 5, now = new Date()): string[] {
+  const startYear = Number(currentFinancialYear(now).slice(0, 4));
+  return Array.from({ length: count }, (_, i) => {
+    const s = startYear - i;
+    return `${s}-${String((s + 1) % 100).padStart(2, "0")}`;
+  });
+}
+
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return DASH;
   // Backend timestamps are naive UTC; mark them as UTC so they localise right.

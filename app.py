@@ -128,10 +128,19 @@ def create_app() -> Flask:
 
     @app.get("/portfolio/realised")
     def get_realised():
-        # ?financial_year=2023-24  (optional; omit for all-time)
+        # ?financial_year=2023-24 (optional) &taxable_income=120000 (optional)
         fy = request.args.get("financial_year")
+        income_raw = request.args.get("taxable_income")
+        try:
+            taxable_income = float(income_raw) if income_raw not in (None, "") else None
+        except ValueError:
+            return jsonify({"error": "taxable_income must be a number"}), 400
         with session_scope() as session:
-            return jsonify(ledger.compute_realised(session, financial_year=fy))
+            return jsonify(
+                ledger.compute_realised(
+                    session, financial_year=fy, taxable_income=taxable_income
+                )
+            )
 
     @app.post("/transactions/sync-holdings")
     def sync_holdings():

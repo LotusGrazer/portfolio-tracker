@@ -323,3 +323,32 @@ tbody tr:last-child td {
   margin: 0.4rem 0 0;
   padding-left: 1.1rem;
 }
+
+/* CGT controls ------------------------------------------------------------ */
+.cgt-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.field.inline {
+  margin: 0;
+  flex: 1 1 200px;
+}
+.field.inline select,
+.field.inline input {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+.disclaimer {
+  margin-top: 1rem;
+  padding: 0.6rem 0.8rem;
+  background: #fff8e6;
+  border: 1px solid #fde9b0;
+  border-radius: 8px;
+}

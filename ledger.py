@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 import config
+import tax
 from database import ensure_portfolio
 from models import Holding, Portfolio, Transaction
 from portfolio import (
@@ -215,11 +216,16 @@ def get_transactions(session: Session) -> list[dict]:
     return [t.to_dict() for t in txns]
 
 
-def compute_realised(session: Session, financial_year: str | None = None) -> dict:
+def compute_realised(
+    session: Session,
+    financial_year: str | None = None,
+    taxable_income: float | None = None,
+) -> dict:
     """Realised gains and a CGT-discount summary across actual portfolios.
 
     If ``financial_year`` (e.g. "2023-24") is given, only sells settled within
-    that Australian FY are included.
+    that Australian FY are included. If ``taxable_income`` is given, an estimate
+    of the additional tax the net gain attracts is added (see tax.py).
     """
     grouped = _legs_by_ticker(_actual_transactions(session))
 
@@ -255,23 +261,29 @@ def compute_realised(session: Session, financial_year: str | None = None) -> dic
     discount = discountable * 0.5
     net_capital_gain = max(total_gain - discount, 0.0) if total_gain > 0 else total_gain
 
+    cgt_estimate = {
+        "total_realised_gain": round(total_gain, 2),
+        "discount_eligible_gain": round(discountable, 2),
+        "short_term_gain": round(short_term, 2),
+        "estimated_discount": round(discount, 2),
+        "estimated_net_capital_gain": round(net_capital_gain, 2),
+        "disclaimer": (
+            "Informational estimate only, not tax advice. Assumes single "
+            "currency per parcel; ignores capital-loss offset ordering and "
+            "carried-forward losses."
+        ),
+    }
+    if taxable_income is not None:
+        cgt_estimate["estimated_tax"] = tax.estimate_tax_on_gain(
+            taxable_income, net_capital_gain, financial_year
+        )
+
     return {
         "base_currency": config.BASE_CURRENCY,
         "financial_year": financial_year,
         "events": [e.to_dict() for e in events],
         "by_currency": by_currency,
-        "cgt_estimate": {
-            "total_realised_gain": round(total_gain, 2),
-            "discount_eligible_gain": round(discountable, 2),
-            "short_term_gain": round(short_term, 2),
-            "estimated_discount": round(discount, 2),
-            "estimated_net_capital_gain": round(net_capital_gain, 2),
-            "disclaimer": (
-                "Informational estimate only, not tax advice. Assumes single "
-                "currency per parcel; ignores capital-loss offset ordering and "
-                "carried-forward losses."
-            ),
-        },
+        "cgt_estimate": cgt_estimate,
     }
 
 

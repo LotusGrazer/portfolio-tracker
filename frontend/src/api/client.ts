@@ -2,7 +2,10 @@ import type {
   Benchmark,
   Comparison,
   Holding,
+  Realised,
   Summary,
+  SyncResult,
+  Transaction,
   UploadResult,
 } from "./types";
 
@@ -66,4 +69,34 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
+
+  transactions: () => request<Transaction[]>("/transactions"),
+
+  uploadTransactions: (file: File, portfolio?: string, replace?: boolean) => {
+    const form = new FormData();
+    form.append("file", file);
+    const params = new URLSearchParams();
+    if (portfolio) params.set("portfolio", portfolio);
+    if (replace) params.set("replace", "true");
+    const qs = params.toString();
+    return request<UploadResult>(`/transactions/upload${qs ? `?${qs}` : ""}`, {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  realised: (financialYear?: string, taxableIncome?: number) => {
+    const params = new URLSearchParams();
+    if (financialYear) params.set("financial_year", financialYear);
+    if (taxableIncome != null) params.set("taxable_income", String(taxableIncome));
+    const qs = params.toString();
+    return request<Realised>(`/portfolio/realised${qs ? `?${qs}` : ""}`);
+  },
+
+  syncHoldings: (portfolio?: string) => {
+    const qs = portfolio ? `?portfolio=${encodeURIComponent(portfolio)}` : "";
+    return request<SyncResult>(`/transactions/sync-holdings${qs}`, {
+      method: "POST",
+    });
+  },
 };

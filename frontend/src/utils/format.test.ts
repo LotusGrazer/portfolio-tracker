@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  currentFinancialYear,
   formatCurrency,
   formatDateTime,
   formatNumber,
   formatPct,
   gainClass,
+  recentFinancialYears,
 } from "./format";
 
 describe("formatCurrency", () => {
@@ -52,5 +54,20 @@ describe("formatDateTime", () => {
   });
   it("parses a naive UTC timestamp without throwing", () => {
     expect(formatDateTime("2024-01-01T00:00:00")).not.toBe("—");
+  });
+});
+
+describe("financial year helpers", () => {
+  it("derives the AU FY from a date (July rolls over)", () => {
+    expect(currentFinancialYear(new Date("2024-06-30"))).toBe("2023-24");
+    expect(currentFinancialYear(new Date("2024-07-01"))).toBe("2024-25");
+    expect(currentFinancialYear(new Date("2025-01-15"))).toBe("2024-25");
+  });
+  it("lists recent FYs newest first", () => {
+    expect(recentFinancialYears(3, new Date("2025-01-15"))).toEqual([
+      "2024-25",
+      "2023-24",
+      "2022-23",
+    ]);
   });
 });

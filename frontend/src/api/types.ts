@@ -95,3 +95,63 @@ export interface UploadResult {
   skipped: number;
   errors: { row: number; error: string }[];
 }
+
+export interface Transaction {
+  id: number;
+  portfolio_id: number;
+  ticker: string;
+  exchange: string | null;
+  type: string; // "buy" | "sell"
+  quantity: number;
+  price_per_unit: number;
+  currency: string | null;
+  fee: number;
+  trade_date: string | null;
+  reference: string | null;
+}
+
+export interface RealisedEvent {
+  ticker: string;
+  quantity: number;
+  buy_date: string;
+  sell_date: string;
+  proceeds: number;
+  cost_base: number;
+  gain: number;
+  currency: string | null;
+  cgt_discount_eligible: boolean;
+}
+
+export interface EstimatedTax {
+  taxable_income: number;
+  financial_year_basis: string;
+  additional_tax: number;
+  effective_rate_on_gain_pct: number;
+}
+
+export interface CgtEstimate {
+  total_realised_gain: number;
+  discount_eligible_gain: number;
+  short_term_gain: number;
+  estimated_discount: number;
+  estimated_net_capital_gain: number;
+  disclaimer: string;
+  estimated_tax?: EstimatedTax;
+}
+
+export interface Realised {
+  base_currency: string;
+  financial_year: string | null;
+  events: RealisedEvent[];
+  by_currency: Record<
+    string,
+    { proceeds: number; cost_base: number; gain: number }
+  >;
+  cgt_estimate: CgtEstimate;
+}
+
+export interface SyncResult {
+  portfolio: string;
+  holdings_created: number;
+  tickers: string[];
+}
