@@ -27,3 +27,5 @@ node_modules/
 .DS_Store
 *.db
 .vscode/settings.json
+*.db-wal
+*.db-shm

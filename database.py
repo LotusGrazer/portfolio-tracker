@@ -28,9 +28,17 @@ SessionLocal = sessionmaker(
 
 @event.listens_for(Engine, "connect")
 def _enable_sqlite_fk(dbapi_connection, _connection_record):
-    """SQLite ignores foreign keys unless this PRAGMA is set per connection."""
+    """Per-connection SQLite tuning.
+
+    The threaded dev server can issue parallel requests that both touch the
+    price cache, so WAL mode (concurrent reader + one writer) plus a busy
+    timeout (wait, don't immediately error, on a write lock) prevent spurious
+    "database is locked" failures. Foreign keys are off by default in SQLite.
+    """
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
     cursor.close()
 
 

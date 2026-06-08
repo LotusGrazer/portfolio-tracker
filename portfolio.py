@@ -13,6 +13,7 @@ import io
 from dataclasses import dataclass, field
 
 import yfinance as yf
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import config
@@ -130,9 +131,18 @@ def _get_or_refresh_symbol(
 
     currency = currency or default_currency
     if row is None:
-        row = Price(ticker=symbol, price=price, currency=currency, last_updated=now)
-        session.add(row)
-    else:
+        # Insert in a savepoint: a parallel request may insert the same symbol
+        # first (prices.ticker is unique). If so, fetch and update that row
+        # instead of failing the whole request.
+        try:
+            with session.begin_nested():
+                row = Price(
+                    ticker=symbol, price=price, currency=currency, last_updated=now
+                )
+                session.add(row)
+        except IntegrityError:
+            row = session.query(Price).filter_by(ticker=symbol).one()
+    if row.price != price or row.last_updated != now:
         row.price = price
         row.currency = currency
         row.last_updated = now
