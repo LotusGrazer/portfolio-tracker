@@ -542,6 +542,12 @@ def _upsert_benchmark(
     session: Session, name: str, constituents: list[dict]
 ) -> dict:
     """Create or replace a benchmark portfolio and its constituents."""
+    total_weight = sum(c["weight_pct"] for c in constituents)
+    if total_weight <= 0:
+        raise PortfolioError(
+            "benchmark weights must sum to a positive total (got "
+            f"{round(total_weight, 2)}%)"
+        )
     portfolio = session.query(Portfolio).filter_by(name=name).one_or_none()
     if portfolio is not None and portfolio.type != "benchmark":
         raise PortfolioError(
@@ -562,7 +568,6 @@ def _upsert_benchmark(
         for c in constituents
     ]
     session.flush()
-    total_weight = sum(c["weight_pct"] for c in constituents)
 
     result = {
         **portfolio.to_dict(),
@@ -576,11 +581,26 @@ def _upsert_benchmark(
     return result
 
 
+def delete_benchmark(session: Session, benchmark_id: int) -> dict:
+    """Delete a benchmark portfolio (and its constituents) by id."""
+    portfolio = session.get(Portfolio, benchmark_id)
+    if portfolio is None or portfolio.type != "benchmark":
+        raise PortfolioError(f"no benchmark with id {benchmark_id}")
+    name = portfolio.name
+    session.delete(portfolio)
+    session.flush()
+    return {"deleted": name, "id": benchmark_id}
+
+
 # --------------------------------------------------------------------------- #
 # Benchmark vs. actual comparison
 # --------------------------------------------------------------------------- #
-# yfinance period strings we support for the comparison endpoint.
-SUPPORTED_PERIODS = ("1mo", "3mo", "6mo", "ytd", "1y", "3y", "5y")
+# yfinance period strings we support for the comparison endpoint. "max" is
+# all available history (note: constituents with different inception dates are
+# then measured over different windows).
+SUPPORTED_PERIODS = (
+    "1mo", "3mo", "6mo", "ytd", "1y", "2y", "3y", "5y", "10y", "max",
+)
 DEFAULT_PERIODS = ("1mo", "3mo", "6mo", "ytd", "1y")
 
 

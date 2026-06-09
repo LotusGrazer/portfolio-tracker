@@ -226,13 +226,18 @@ currency (each with weight %). Tickers that couldn't be priced are listed under
 ### `GET /benchmarks`
 Lists benchmark portfolios with their constituents and total weight.
 
+### `DELETE /benchmarks/<id>`
+Deletes a benchmark and its constituents (the Benchmarks tab has a Delete
+button per benchmark).
+
 ### `GET /benchmarks/compare`
 Compares your actual portfolio's return against every benchmark over one or
 more periods, **in base currency (FX-adjusted)**.
 
 Query params:
 - `periods` — comma-separated list (default `1mo,3mo,6mo,ytd,1y`). Supported:
-  `1mo,3mo,6mo,ytd,1y,3y,5y`.
+  `1mo,3mo,6mo,ytd,1y,2y,3y,5y,10y,max` (`max` = all available history). The
+  Compare tab has a period picker for these.
 
 ```bash
 curl "http://127.0.0.1:5000/benchmarks/compare?periods=3mo,1y"
@@ -292,7 +297,9 @@ curl -H "Content-Type: application/json" \
      http://127.0.0.1:5000/benchmarks/create
 ```
 
-A `warning` is returned if weights don't sum to 100%.
+Weights must sum to a positive total (a zero/empty total is rejected); a
+`warning` is returned if they don't sum to ~100%. The Manage-tab builder
+requires ~100% before saving.
 
 ## Notes & design decisions
 

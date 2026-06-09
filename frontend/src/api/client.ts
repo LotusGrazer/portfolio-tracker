@@ -70,6 +70,11 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  deleteBenchmark: (id: number) =>
+    request<{ deleted: string; id: number }>(`/benchmarks/${id}`, {
+      method: "DELETE",
+    }),
+
   transactions: () => request<Transaction[]>("/transactions"),
 
   uploadTransactions: (file: File, portfolio?: string, replace?: boolean) => {

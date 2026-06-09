@@ -81,6 +81,38 @@ def test_list_benchmarks(session):
         assert "total_weight_pct" in b
 
 
+def test_zero_total_weight_rejected(session):
+    with pytest.raises(pf.PortfolioError, match="positive total"):
+        pf.create_benchmark_from_dict(
+            session, {"name": "Zero", "constituents": [{"ticker": "URTH", "weight_pct": 0}]}
+        )
+
+
+def test_delete_benchmark(session):
+    created = pf.create_benchmark_from_dict(
+        session, {"name": "Temp", "constituents": [{"ticker": "VAS", "weight_pct": 100}]}
+    )
+    result = pf.delete_benchmark(session, created["id"])
+    assert result["deleted"] == "Temp"
+    assert pf.list_benchmarks(session) == []
+
+
+def test_delete_unknown_benchmark_raises(session):
+    with pytest.raises(pf.PortfolioError, match="no benchmark"):
+        pf.delete_benchmark(session, 9999)
+
+
+def test_delete_endpoint(client):
+    created = client.post(
+        "/benchmarks/create",
+        json={"name": "Temp", "constituents": [{"ticker": "VAS", "weight_pct": 100}]},
+    ).get_json()
+    resp = client.delete(f"/benchmarks/{created['id']}")
+    assert resp.status_code == 200
+    assert resp.get_json()["deleted"] == "Temp"
+    assert client.get("/benchmarks").get_json() == []
+
+
 def test_missing_required_csv_columns_raises(session):
     with pytest.raises(pf.PortfolioError, match="must include"):
         pf.create_benchmark_from_csv(session, "name,ticker\nASX200,VAS\n")

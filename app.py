@@ -98,6 +98,11 @@ def create_app() -> Flask:
         with session_scope() as session:
             return jsonify(pf.list_benchmarks(session))
 
+    @app.delete("/benchmarks/<int:benchmark_id>")
+    def delete_benchmark(benchmark_id: int):
+        with session_scope() as session:
+            return jsonify(pf.delete_benchmark(session, benchmark_id))
+
     @app.get("/benchmarks/compare")
     def compare_benchmarks():
         # ?periods=1mo,3mo,1y  (defaults applied if omitted/empty)

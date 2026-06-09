@@ -1,16 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api/client";
-import type {
-  Benchmark,
-  Comparison,
-  Holding,
-  Summary,
-  Transaction,
-} from "./api/types";
+import type { Benchmark, Holding, Summary, Transaction } from "./api/types";
 import { AllocationCharts } from "./components/AllocationCharts";
-import { BenchmarkComparison } from "./components/BenchmarkComparison";
 import { BenchmarksList } from "./components/BenchmarksList";
 import { CgtPanel } from "./components/CgtPanel";
+import { ComparePanel } from "./components/ComparePanel";
 import { HoldingsView } from "./components/HoldingsView";
 import { Loading } from "./components/Loading";
 import { ManagePanel } from "./components/ManagePanel";
@@ -42,11 +36,8 @@ export default function App() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [comparison, setComparison] = useState<Comparison | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [cmpLoading, setCmpLoading] = useState(false);
-  const [cmpError, setCmpError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   const loadCore = useCallback(async () => {
@@ -71,39 +62,15 @@ export default function App() {
     }
   }, []);
 
-  const loadComparison = useCallback(async () => {
-    setCmpLoading(true);
-    setCmpError(null);
-    try {
-      setComparison(await api.compare());
-    } catch (e) {
-      setCmpError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCmpLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     loadCore();
   }, [loadCore]);
-
-  // Lazy-load the (slower) comparison the first time the tab is opened.
-  useEffect(() => {
-    if (tab === "compare" && comparison === null && !cmpLoading && cmpError === null) {
-      loadComparison();
-    }
-  }, [tab, comparison, cmpLoading, cmpError, loadComparison]);
 
   const handleChanged = useCallback(() => {
     loadCore();
-    setComparison(null); // invalidate; reloads when Compare is next viewed
-    setCmpError(null);
   }, [loadCore]);
 
-  const refresh = () => {
-    loadCore();
-    if (comparison || tab === "compare") loadComparison();
-  };
+  const refresh = () => loadCore();
 
   const baseCurrency = summary?.base_currency ?? "AUD";
 
@@ -167,7 +134,9 @@ export default function App() {
             {tab === "holdings" && (
               <HoldingsView holdings={holdings} baseCurrency={baseCurrency} />
             )}
-            {tab === "benchmarks" && <BenchmarksList benchmarks={benchmarks} />}
+            {tab === "benchmarks" && (
+              <BenchmarksList benchmarks={benchmarks} onChanged={handleChanged} />
+            )}
             {tab === "transactions" && (
               <TransactionsPanel
                 transactions={transactions}
@@ -175,13 +144,7 @@ export default function App() {
               />
             )}
             {tab === "cgt" && <CgtPanel />}
-            {tab === "compare" && (
-              <>
-                {cmpLoading && <p className="muted">Computing returns…</p>}
-                {cmpError && <p className="negative">{cmpError}</p>}
-                {comparison && <BenchmarkComparison comparison={comparison} />}
-              </>
-            )}
+            {tab === "compare" && <ComparePanel />}
             {tab === "manage" && <ManagePanel onChanged={handleChanged} />}
           </>
         )}

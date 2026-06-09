@@ -109,6 +109,8 @@ function BenchmarkBuilder({ onChanged }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const totalWeight = rows.reduce((sum, r) => sum + (parseFloat(r.weight_pct) || 0), 0);
+  const weightOk = Math.abs(totalWeight - 100) < 0.5;
+  const hasTicker = rows.some((r) => r.ticker.trim());
 
   function updateRow(i: number, patch: Partial<Row>) {
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -198,14 +200,17 @@ function BenchmarkBuilder({ onChanged }: Props) {
         <button type="button" className="ghost" onClick={addRow}>
           + Add constituent
         </button>
-        <span className={`small ${Math.abs(totalWeight - 100) < 0.01 ? "positive" : "muted"}`}>
+        <span className={`small ${weightOk ? "positive" : "negative"}`}>
           Total {totalWeight.toFixed(2)}%
         </span>
       </div>
 
-      <button type="submit" disabled={busy || !name.trim()}>
+      <button type="submit" disabled={busy || !name.trim() || !hasTicker || !weightOk}>
         {busy ? "Saving…" : "Save benchmark"}
       </button>
+      {!weightOk && hasTicker && (
+        <p className="muted small">Weights must total 100% to save.</p>
+      )}
 
       {error && <p className="negative small">{error}</p>}
       {message && <p className="positive small">{message}</p>}

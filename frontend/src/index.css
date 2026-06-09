@@ -324,6 +324,22 @@ tbody tr:last-child td {
   padding-left: 1.1rem;
 }
 
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.card-head h3 {
+  margin: 0;
+}
+.ghost.danger {
+  color: var(--negative);
+  border-color: #f3c6c6;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+}
+
 /* Loading ----------------------------------------------------------------- */
 .loading {
   display: flex;
