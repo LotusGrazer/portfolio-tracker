@@ -12,6 +12,7 @@ import { BenchmarkComparison } from "./components/BenchmarkComparison";
 import { BenchmarksList } from "./components/BenchmarksList";
 import { CgtPanel } from "./components/CgtPanel";
 import { HoldingsView } from "./components/HoldingsView";
+import { Loading } from "./components/Loading";
 import { ManagePanel } from "./components/ManagePanel";
 import { SummaryCards } from "./components/SummaryCards";
 import { TransactionsPanel } from "./components/TransactionsPanel";
@@ -113,7 +114,14 @@ export default function App() {
           <h1>Portfolio Tracker</h1>
           <p className="muted small">
             Base currency {baseCurrency}
-            {updatedAt && ` · updated ${updatedAt.toLocaleTimeString("en-AU")}`}
+            {loading ? (
+              <span className="updating">
+                {" · "}
+                <span className="spinner" /> updating prices…
+              </span>
+            ) : (
+              updatedAt && ` · updated ${updatedAt.toLocaleTimeString("en-AU")}`
+            )}
           </p>
         </div>
         <button className="ghost" onClick={refresh} disabled={loading}>
@@ -144,7 +152,10 @@ export default function App() {
             </p>
           </div>
         ) : loading && !summary ? (
-          <p className="muted">Loading…</p>
+          <Loading
+            message="Fetching live prices…"
+            hint="The first load after starting fetches a current price for every ticker — this can take a few seconds. It's cached after that."
+          />
         ) : (
           <>
             {tab === "overview" && summary && (

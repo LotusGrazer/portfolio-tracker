@@ -2,9 +2,8 @@
 
 Future ideas / deferred work, roughly in priority order. Tick off as done.
 
-- [ ] **"Fetching prices…" indicator** — the first load after a restart/import
-      fetches live prices for all tickers (a few seconds). Show a clear loading
-      state so it never looks stuck.
+- [x] **"Fetching prices…" indicator** — initial load shows a spinner +
+      "Fetching live prices…"; refreshes show "updating prices…" in the header.
 - [ ] **Manual price override** — set a current price per ticker for instruments
       yfinance can't reach (e.g. delisted funds, new Cboe-AU codes).
 - [x] **Total-return benchmarking** — comparison now uses dividend-adjusted

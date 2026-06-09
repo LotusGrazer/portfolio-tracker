@@ -324,6 +324,43 @@ tbody tr:last-child td {
   padding-left: 1.1rem;
 }
 
+/* Loading ----------------------------------------------------------------- */
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 2.5rem 0.5rem;
+}
+.loading-msg {
+  color: var(--text);
+  font-weight: 500;
+}
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex: none;
+  display: inline-block;
+}
+.updating {
+  color: var(--accent);
+}
+.updating .spinner {
+  width: 11px;
+  height: 11px;
+  border-width: 2px;
+  vertical-align: middle;
+  margin-right: 0.2rem;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Toggle pills ------------------------------------------------------------ */
 .toggle-row {
   display: flex;
