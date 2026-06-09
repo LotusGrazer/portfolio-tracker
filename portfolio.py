@@ -585,13 +585,16 @@ DEFAULT_PERIODS = ("1mo", "3mo", "6mo", "ytd", "1y")
 
 
 def _fetch_close_series(symbol: str, period: str):
-    """Return a pandas Series of daily closes for ``symbol`` over ``period``.
+    """Return a pandas Series of daily **total-return** closes for ``symbol``.
 
-    This is the single network seam for historical data (mocked in tests).
-    Returns ``None`` if no usable history is available.
+    ``auto_adjust=True`` adjusts the close for dividends and splits, so the
+    series is effectively an accumulation index (dividends reinvested). Using it
+    for both the portfolio and the benchmark makes the comparison a fair
+    total-return one. This is the single network seam for historical data
+    (mocked in tests). Returns ``None`` if no usable history is available.
     """
     try:
-        hist = yf.Ticker(symbol).history(period=period)
+        hist = yf.Ticker(symbol).history(period=period, auto_adjust=True)
     except Exception:
         return None
     if hist is None or hist.empty or "Close" not in hist:
@@ -603,11 +606,13 @@ def _fetch_close_series(symbol: str, period: str):
 def _period_return(
     symbol: str, currency: str | None, period: str, base: str
 ) -> float | None:
-    """Fractional total price return of ``symbol`` over ``period``, in ``base``.
+    """Fractional total return of ``symbol`` over ``period``, in ``base``.
 
-    If the instrument trades in a non-base currency, the start/end prices are
-    converted using the FX rate at each endpoint so the return reflects what an
-    investor in ``base`` actually experienced (price move + currency move).
+    Uses the dividend-adjusted series (see ``_fetch_close_series``), so this is
+    total return (dividends reinvested), not just the price move. If the
+    instrument trades in a non-base currency, the start/end values are converted
+    using the FX rate at each endpoint, so the return reflects what an investor
+    in ``base`` actually experienced (total return + currency move).
     """
     closes = _fetch_close_series(symbol, period)
     if closes is None or len(closes) < 2:

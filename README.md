@@ -240,9 +240,12 @@ curl "http://127.0.0.1:5000/benchmarks/compare?periods=3mo,1y"
 
 Returns, per period: the actual portfolio return, each benchmark return, and
 the `excess_return_pct` (actual − benchmark). `coverage` shows how many
-constituents had usable price history (e.g. `3/3`). Returns are **price
-returns** (capital only) computed from the current holdings/weights — they
-isolate investment performance from contribution timing, but exclude dividends.
+constituents had usable price history (e.g. `3/3`). Returns are **total return**
+— computed from each security's dividend-adjusted (accumulation) series, so
+dividends are included on both sides. Use dividend-paying ETF tickers as
+benchmark constituents (e.g. VAS, VGS, URTH); a price-only index like `^AXJO`
+won't include distributions. Weighted by current holdings/weights, so the
+comparison isolates investment performance from contribution timing.
 
 ### `GET /transactions`
 All transactions across actual portfolios, newest trade first.
@@ -340,9 +343,11 @@ frontend change so the served app updates), `npm test` (Vitest unit tests),
 
 ## Known limitations
 
-- **Price returns only.** Comparison and gain/loss are capital returns; they
-  exclude dividends/distributions, so they understate total return for income
-  funds.
+- **Holdings gain/loss is capital-only.** The benchmark *comparison* is now
+  total return (dividend-adjusted), but the Holdings/Summary gain/loss still
+  reflects price vs cost only — it doesn't add the distributions you've actually
+  received (those are in the CMC export and a future total-return-of-holdings
+  feature could fold them in).
 - **Tickers yfinance can't price.** A few codes have no Yahoo quote (e.g.
   delisted/renamed funds like `VGMF`); they show as unpriced rather than
   guessed. New Cboe-Australia codes also need adding to `CBOE_AU_TICKERS` in

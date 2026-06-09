@@ -108,8 +108,9 @@ export function BenchmarkComparison({ comparison }: Props) {
         </table>
       </div>
       <p className="muted small">
-        Excess = actual − benchmark. Returns are capital (price) returns and
-        exclude dividends.
+        Excess = actual − benchmark. Returns are <strong>total return</strong>
+        {" "}(dividends reinvested, via each security's accumulation series), so
+        use dividend-paying ETFs as benchmarks rather than price-only indices.
       </p>
     </div>
   );

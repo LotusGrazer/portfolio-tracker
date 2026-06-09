@@ -7,8 +7,11 @@ Future ideas / deferred work, roughly in priority order. Tick off as done.
       state so it never looks stuck.
 - [ ] **Manual price override** — set a current price per ticker for instruments
       yfinance can't reach (e.g. delisted funds, new Cboe-AU codes).
-- [ ] **Dividends / total return** — the CMC export already contains dividend &
-      distribution rows; use them for total-return performance and franking.
+- [x] **Total-return benchmarking** — comparison now uses dividend-adjusted
+      (accumulation) series on both sides.
+- [ ] **Total return of *actual* holdings** — fold the distributions you've
+      actually received (in the CMC export) into Holdings/Summary gain-loss, and
+      add franking-credit tracking.
 - [ ] **Per-person / household CGT split** — currently treated as one tax entity.
 - [ ] **Per-trade-date FX** for exact AUD CGT on foreign-currency trades.
 - [ ] **CGT indexation method** — the 50% discount is expected to be replaced by
