@@ -32,7 +32,13 @@ def create_app() -> Flask:
     def index():
         index_html = os.path.join(FRONTEND_DIST, "index.html")
         if os.path.exists(index_html):
-            return send_file(index_html)
+            resp = send_file(index_html)
+            # Never cache index.html: it references content-hashed asset files,
+            # so a stale cached copy can point at a bundle that no longer exists
+            # (a blank page until hard-refresh). The hashed assets themselves are
+            # immutable and cached normally.
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return resp
         return jsonify(
             {
                 "message": "Frontend not built yet. Run setup.command (or "

@@ -98,6 +98,14 @@ def test_benchmark_via_json(client):
     assert resp.get_json()["name"] == "Tech"
 
 
+def test_index_html_is_not_cached(client):
+    # When the built frontend is served, index.html must not be cached (it
+    # references content-hashed bundles). If the build isn't present, skip.
+    resp = client.get("/")
+    if resp.content_type.startswith("text/html"):
+        assert "no-cache" in resp.headers.get("Cache-Control", "")
+
+
 def test_unknown_route_returns_json_404(client):
     resp = client.get("/does-not-exist")
     assert resp.status_code == 404
