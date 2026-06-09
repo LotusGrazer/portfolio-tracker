@@ -11,7 +11,7 @@ import { AllocationCharts } from "./components/AllocationCharts";
 import { BenchmarkComparison } from "./components/BenchmarkComparison";
 import { BenchmarksList } from "./components/BenchmarksList";
 import { CgtPanel } from "./components/CgtPanel";
-import { HoldingsTable } from "./components/HoldingsTable";
+import { HoldingsView } from "./components/HoldingsView";
 import { ManagePanel } from "./components/ManagePanel";
 import { SummaryCards } from "./components/SummaryCards";
 import { TransactionsPanel } from "./components/TransactionsPanel";
@@ -154,7 +154,7 @@ export default function App() {
               </>
             )}
             {tab === "holdings" && (
-              <HoldingsTable holdings={holdings} baseCurrency={baseCurrency} />
+              <HoldingsView holdings={holdings} baseCurrency={baseCurrency} />
             )}
             {tab === "benchmarks" && <BenchmarksList benchmarks={benchmarks} />}
             {tab === "transactions" && (

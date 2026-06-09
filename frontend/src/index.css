@@ -324,6 +324,27 @@ tbody tr:last-child td {
   padding-left: 1.1rem;
 }
 
+/* Toggle pills ------------------------------------------------------------ */
+.toggle-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+.pill {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pill.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
 /* CGT controls ------------------------------------------------------------ */
 .cgt-controls {
   display: flex;

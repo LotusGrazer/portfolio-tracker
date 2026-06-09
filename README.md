@@ -306,7 +306,9 @@ A `warning` is returned if weights don't sum to 100%.
 
 A React + TypeScript dashboard (Vite, recharts) lives in [`frontend/`](frontend/).
 It consumes the API above and provides these tabs: **Overview** (summary cards +
-allocation donut charts), **Holdings** (valued table), **Benchmarks**
+allocation donut charts), **Holdings** (valued table — toggle between
+**Consolidated** one-row-per-ticker and **Parcels** per-purchase for CGT),
+**Benchmarks**
 (definitions), **Compare** (benchmark-vs-actual return chart + table),
 **Transactions** (ledger table; import a CMC export or native CSV and build
 holdings from it in one step),
