@@ -170,6 +170,29 @@ def test_compare_multi_constituent_benchmark(session, add_holding, history):
     assert cell["benchmark_coverage"] == "3/3"
 
 
+def test_compare_downloads_each_series_once(session, add_holding, monkeypatch):
+    # VAS appears as the actual holding and in two benchmarks, over two
+    # periods. The request-scoped cache must collapse that to exactly one
+    # download per (symbol, period).
+    calls: list[tuple[str, str]] = []
+
+    def counting_fetch(symbol, period):
+        calls.append((symbol, period))
+        return pd.Series([100.0, 110.0]) if symbol == "VAS.AX" else None
+
+    monkeypatch.setattr(pf, "_fetch_close_series", counting_fetch)
+    add_holding("VAS", quantity=10, exchange="ASX")
+    for name in ("Bench A", "Bench B"):
+        pf.create_benchmark_from_dict(
+            session,
+            {"name": name, "constituents": [{"ticker": "VAS", "weight_pct": 100}]},
+        )
+
+    result = pf.compare_to_benchmarks(session, periods=["1mo", "3mo"])
+    assert sorted(calls) == [("VAS.AX", "1mo"), ("VAS.AX", "3mo")]
+    assert result["benchmarks"][1]["periods"]["3mo"]["benchmark_return_pct"] == 10.0
+
+
 def test_compare_no_benchmarks(session, add_holding, history):
     history["VAS.AX"] = [100.0, 110.0]
     add_holding("VAS", quantity=10, exchange="ASX")

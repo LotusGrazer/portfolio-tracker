@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -130,7 +131,16 @@ def _get_or_refresh_symbol(
     except PriceLookupError:
         return row  # stale-if-error (may be None)
 
-    currency = currency or default_currency
+    row = _store_price(session, symbol, price, currency or default_currency, now)
+    session.flush()
+    return row
+
+
+def _store_price(
+    session: Session, symbol: str, price: float, currency: str | None, now
+) -> Price:
+    """Upsert a cached price row for ``symbol``."""
+    row = session.query(Price).filter_by(ticker=symbol).one_or_none()
     if row is None:
         # Insert in a savepoint: a parallel request may insert the same symbol
         # first (prices.ticker is unique). If so, fetch and update that row
@@ -147,7 +157,6 @@ def _get_or_refresh_symbol(
         row.price = price
         row.currency = currency
         row.last_updated = now
-    session.flush()
     return row
 
 
@@ -160,6 +169,51 @@ def get_fx_rate(
         return 1.0
     row = _get_or_refresh_symbol(session, f"{currency}{base}=X", base)
     return row.price if row else None
+
+
+def _wanted_symbols(holdings: list[Holding]) -> dict[str, str | None]:
+    """Every price/FX symbol valuing ``holdings`` will need -> default currency."""
+    base = config.BASE_CURRENCY
+    wanted: dict[str, str | None] = {}
+    for h in holdings:
+        symbol, currency = resolve_symbol(h.ticker, h.exchange)
+        wanted.setdefault(symbol, currency)
+        for ccy in (currency, h.cost_currency or base):
+            if ccy and ccy != base:
+                wanted.setdefault(f"{ccy}{base}=X", base)
+    return wanted
+
+
+def _refresh_prices(session: Session, wanted: dict[str, str | None]) -> None:
+    """Bring the price cache up to date for many symbols in one pass.
+
+    The per-symbol lookups in ``value_holding`` are network-bound and would
+    otherwise run serially (one round-trip per holding on a cold cache). Here
+    the stale/missing symbols are fetched concurrently, then written to the
+    cache on the caller's session, so the subsequent valuations are all cache
+    hits. A failed fetch is simply not stored — the per-symbol stale-if-error
+    path still applies when the row is read.
+    """
+    now = utcnow()
+    ttl = dt.timedelta(minutes=config.PRICE_CACHE_TTL_MINUTES)
+    fresh = {
+        row.ticker
+        for row in session.query(Price).filter(Price.ticker.in_(wanted)).all()
+        if row.last_updated and (now - row.last_updated) < ttl
+    }
+    stale = [s for s in wanted if s not in fresh]
+    if not stale:
+        return
+    with ThreadPoolExecutor(max_workers=min(8, len(stale))) as pool:
+        futures = {pool.submit(_fetch_live_price, s): s for s in stale}
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                price, currency = future.result()
+            except Exception:
+                continue
+            _store_price(session, symbol, price, currency or wanted[symbol], now)
+    session.flush()
 
 
 # --------------------------------------------------------------------------- #
@@ -245,6 +299,7 @@ def get_actual_holdings(session: Session) -> list[dict]:
         .filter(Portfolio.type == "actual")
         .all()
     )
+    _refresh_prices(session, _wanted_symbols(holdings))
     return [value_holding(session, h) for h in holdings]
 
 
@@ -633,8 +688,50 @@ def _fetch_close_series(symbol: str, period: str):
     return closes if len(closes) else None
 
 
+# A request-scoped history cache: (symbol, period) -> close series (or None).
+# The same symbol appears in the actual portfolio and in several benchmarks
+# (and FX pairs repeat across constituents), so without it the comparison
+# re-downloads identical series many times per request.
+SeriesCache = dict[tuple[str, str], "pd.Series | None"]
+
+
+def _get_close_series(symbol: str, period: str, cache: SeriesCache | None):
+    if cache is None:
+        return _fetch_close_series(symbol, period)
+    key = (symbol, period)
+    if key not in cache:
+        cache[key] = _fetch_close_series(symbol, period)
+    return cache[key]
+
+
+def _prefetch_close_series(symbols, periods) -> SeriesCache:
+    """Warm a series cache by fetching every (symbol, period) concurrently.
+
+    The downloads are independent network calls, so running them in parallel
+    collapses N serial round-trips into roughly one round-trip of wall time.
+    """
+    cache: SeriesCache = {}
+    pairs = [(s, p) for s in symbols for p in periods]
+    if not pairs:
+        return cache
+    with ThreadPoolExecutor(max_workers=min(8, len(pairs))) as pool:
+        futures = {
+            pool.submit(_fetch_close_series, s, p): (s, p) for s, p in pairs
+        }
+        for future in as_completed(futures):
+            try:
+                cache[futures[future]] = future.result()
+            except Exception:
+                cache[futures[future]] = None
+    return cache
+
+
 def _period_return(
-    symbol: str, currency: str | None, period: str, base: str
+    symbol: str,
+    currency: str | None,
+    period: str,
+    base: str,
+    cache: SeriesCache | None = None,
 ) -> float | None:
     """Fractional total return of ``symbol`` over ``period``, in ``base``.
 
@@ -644,7 +741,7 @@ def _period_return(
     using the FX rate at each endpoint, so the return reflects what an investor
     in ``base`` actually experienced (total return + currency move).
     """
-    closes = _fetch_close_series(symbol, period)
+    closes = _get_close_series(symbol, period, cache)
     if closes is None or len(closes) < 2:
         return None
     start = float(closes.iloc[0])
@@ -655,7 +752,7 @@ def _period_return(
     if not currency or currency == base:
         return end / start - 1.0
 
-    fx = _fetch_close_series(f"{currency}{base}=X", period)
+    fx = _get_close_series(f"{currency}{base}=X", period, cache)
     if fx is None or len(fx) < 2:
         # Fall back to the native-currency return rather than failing.
         return end / start - 1.0
@@ -703,7 +800,9 @@ def _weighted_period_returns(
     return out
 
 
-def _actual_period_returns(session: Session, periods) -> dict[str, dict]:
+def _actual_period_returns(
+    session: Session, periods, cache: SeriesCache | None = None
+) -> dict[str, dict]:
     """Return of the current actual holdings, weighted by market value."""
     base = config.BASE_CURRENCY
     holdings = (
@@ -712,24 +811,31 @@ def _actual_period_returns(session: Session, periods) -> dict[str, dict]:
         .filter(Portfolio.type == "actual")
         .all()
     )
+    # The weights are current market values, so make those lookups batched
+    # cache hits rather than one network round-trip per holding.
+    _refresh_prices(session, _wanted_symbols(holdings))
     components: list[tuple[float | None, dict[str, float | None]]] = []
     for h in holdings:
         symbol, currency = resolve_symbol(h.ticker, h.exchange)
         weight = value_holding(session, h)["market_value_base"]
-        returns = {p: _period_return(symbol, currency, p, base) for p in periods}
+        returns = {
+            p: _period_return(symbol, currency, p, base, cache) for p in periods
+        }
         components.append((weight, returns))
     return _weighted_period_returns(components, periods)
 
 
 def _benchmark_period_returns(
-    session: Session, benchmark: Portfolio, periods
+    session: Session, benchmark: Portfolio, periods, cache: SeriesCache | None = None
 ) -> dict[str, dict]:
     """Return of a benchmark, weighted by its target weights."""
     base = config.BASE_CURRENCY
     components: list[tuple[float | None, dict[str, float | None]]] = []
     for c in benchmark.holdings:
         symbol, currency = resolve_symbol(c.ticker, c.exchange)
-        returns = {p: _period_return(symbol, currency, p, base) for p in periods}
+        returns = {
+            p: _period_return(symbol, currency, p, base, cache) for p in periods
+        }
         components.append((c.weight_pct, returns))
     return _weighted_period_returns(components, periods)
 
@@ -741,14 +847,35 @@ def compare_to_benchmarks(session: Session, periods=None) -> dict:
     excess (actual − benchmark) per period, all in the base currency.
     """
     periods = tuple(periods) if periods else DEFAULT_PERIODS
-    actual = _actual_period_returns(session, periods)
+    base = config.BASE_CURRENCY
 
+    holdings = (
+        session.query(Holding)
+        .join(Portfolio)
+        .filter(Portfolio.type == "actual")
+        .all()
+    )
     benchmarks = (
         session.query(Portfolio).filter(Portfolio.type == "benchmark").all()
     )
+
+    # Collect every symbol the comparison will touch (actual holdings,
+    # benchmark constituents, and their FX pairs) and download all the history
+    # series up front, in parallel and deduplicated.
+    symbols: set[str] = set()
+    constituents = [c for bench in benchmarks for c in bench.holdings]
+    for item in [*holdings, *constituents]:
+        symbol, currency = resolve_symbol(item.ticker, item.exchange)
+        symbols.add(symbol)
+        if currency and currency != base:
+            symbols.add(f"{currency}{base}=X")
+    cache = _prefetch_close_series(symbols, periods)
+
+    actual = _actual_period_returns(session, periods, cache)
+
     results = []
     for bench in benchmarks:
-        bench_returns = _benchmark_period_returns(session, bench, periods)
+        bench_returns = _benchmark_period_returns(session, bench, periods, cache)
         comparison = {}
         for period in periods:
             a = actual[period]["return_pct"]

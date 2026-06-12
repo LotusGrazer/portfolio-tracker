@@ -120,3 +120,38 @@ def test_unpriced_holding_returns_none_not_error(session, add_holding):
     assert result["current_price"] is None
     assert result["market_value_base"] is None
     assert result["gain_loss_base"] is None
+
+
+def test_cold_cache_valuation_fetches_each_symbol_exactly_once(
+    session, add_holding, market
+):
+    # get_actual_holdings batch-prefetches every stale symbol (prices + FX),
+    # so a cold cache costs one fetch per unique symbol, not one per holding
+    # per lookup.
+    add_holding("VAS", quantity=10, exchange="ASX")
+    add_holding("AOV", quantity=10, exchange="ASX")
+    add_holding("AAPL", quantity=10, exchange="US", cost=100.0, cost_currency="USD")
+
+    pf.get_actual_holdings(session)
+    assert sorted(market.calls) == ["AAPL", "AOV.AX", "USDAUD=X", "VAS.AX"]
+
+    # A second pass is entirely served from the cache.
+    pf.get_actual_holdings(session)
+    assert len(market.calls) == 4
+
+
+def test_batch_refresh_failure_keeps_stale_price(session, add_holding, market):
+    # One symbol failing during the batch prefetch must not poison the others,
+    # and its previously cached price is still served (stale-if-error).
+    h = add_holding("VAS", quantity=10, exchange="ASX")
+    add_holding("AAPL", quantity=10, exchange="US")
+    pf.get_actual_holdings(session)
+
+    for row in session.query(Price).all():
+        row.last_updated = utcnow() - dt.timedelta(hours=1)
+    session.commit()
+    market.fail.add("VAS.AX")
+
+    valued = {v["ticker"]: v for v in pf.get_actual_holdings(session)}
+    assert valued["VAS"]["current_price"] == 100.0  # stale, but served
+    assert valued["AAPL"]["current_price"] == 300.0  # refreshed normally
