@@ -726,20 +726,47 @@ def _prefetch_close_series(symbols, periods) -> SeriesCache:
     return cache
 
 
-def _period_return(
+# Annualise only spans of (about) a year or more: a nominal "1y" series can
+# start a couple of trading days late, while extrapolating a genuinely short
+# window (e.g. 1mo) to a yearly rate would just amplify noise.
+_MIN_ANNUALISE_YEARS = 0.97
+
+
+def _series_years(closes) -> float | None:
+    """Calendar-year span of a close series' actual dates, or None if unknown."""
+    try:
+        days = (closes.index[-1] - closes.index[0]).days
+    except (AttributeError, TypeError):
+        return None  # not a date index
+    return days / 365.25 if days > 0 else None
+
+
+def _annualise(r: float, years: float | None) -> float | None:
+    """Compound annual growth rate of fractional return ``r`` over ``years``."""
+    if years is None or years < _MIN_ANNUALISE_YEARS:
+        return None
+    return (1.0 + r) ** (1.0 / years) - 1.0
+
+
+def _period_return_detail(
     symbol: str,
     currency: str | None,
     period: str,
     base: str,
     cache: SeriesCache | None = None,
-) -> float | None:
-    """Fractional total return of ``symbol`` over ``period``, in ``base``.
+) -> tuple[float, float | None] | None:
+    """``(fractional total return, span in years)`` of ``symbol`` over ``period``.
 
     Uses the dividend-adjusted series (see ``_fetch_close_series``), so this is
     total return (dividends reinvested), not just the price move. If the
     instrument trades in a non-base currency, the start/end values are converted
     using the FX rate at each endpoint, so the return reflects what an investor
     in ``base`` actually experienced (total return + currency move).
+
+    The span is measured from the series' actual first/last dates — not the
+    nominal period label — so annualisation reflects the data that exists (a
+    "max" series only goes back to the fund's inception). It is None when the
+    series has no date index.
     """
     closes = _get_close_series(symbol, period, cache)
     if closes is None or len(closes) < 2:
@@ -748,14 +775,15 @@ def _period_return(
     end = float(closes.iloc[-1])
     if start == 0:
         return None
+    years = _series_years(closes)
 
     if not currency or currency == base:
-        return end / start - 1.0
+        return end / start - 1.0, years
 
     fx = _get_close_series(f"{currency}{base}=X", period, cache)
     if fx is None or len(fx) < 2:
         # Fall back to the native-currency return rather than failing.
-        return end / start - 1.0
+        return end / start - 1.0, years
     # Align the FX rate to the equity's start/end dates rather than pairing
     # by position: the two series trade on different calendars (exchange
     # holidays, inception dates), so fx.iloc[0] can be a rate from a very
@@ -764,36 +792,64 @@ def _period_return(
     start_fx = fx.asof(closes.index[0])
     end_fx = fx.asof(closes.index[-1])
     if pd.isna(start_fx) or pd.isna(end_fx) or float(start_fx) == 0:
-        return end / start - 1.0
-    return (end * float(end_fx)) / (start * float(start_fx)) - 1.0
+        return end / start - 1.0, years
+    return (end * float(end_fx)) / (start * float(start_fx)) - 1.0, years
+
+
+def _period_return(
+    symbol: str,
+    currency: str | None,
+    period: str,
+    base: str,
+    cache: SeriesCache | None = None,
+) -> float | None:
+    """Fractional total return of ``symbol`` over ``period``, in ``base``."""
+    detail = _period_return_detail(symbol, currency, period, base, cache)
+    return detail[0] if detail else None
 
 
 def _weighted_period_returns(
-    components: list[tuple[float | None, dict[str, float | None]]],
+    components: list[tuple[float | None, dict[str, tuple[float, float | None] | None]]],
     periods,
 ) -> dict[str, dict]:
     """Weight per-component returns into a single return per period.
 
-    ``components`` is a list of ``(weight, {period: return})``. For each period
-    we average the available component returns by weight, renormalising over the
-    components that actually have data (so one missing price doesn't zero out the
-    period). ``coverage`` reports how many components contributed.
+    ``components`` is a list of ``(weight, {period: (return, span_years)})``.
+    For each period we average the available component returns by weight,
+    renormalising over the components that actually have data (so one missing
+    price doesn't zero out the period). ``coverage`` reports how many
+    components contributed.
+
+    ``annualised_return_pct`` is the weighted average of each component's CAGR
+    over its *own* span (null for sub-year spans, and so for sub-year periods).
+    Annualising per component matters for "max", where constituents with
+    different inception dates are measured over different windows.
     """
     out: dict[str, dict] = {}
     for period in periods:
         weighted_sum = 0.0
         weight_total = 0.0
+        ann_sum = 0.0
+        ann_weight_total = 0.0
         contributing = 0
         for weight, returns in components:
-            r = returns.get(period)
-            if r is None or weight is None:
+            detail = returns.get(period)
+            if detail is None or weight is None:
                 continue
+            r, years = detail
             weighted_sum += weight * r
             weight_total += weight
             contributing += 1
+            annualised = _annualise(r, years)
+            if annualised is not None:
+                ann_sum += weight * annualised
+                ann_weight_total += weight
         out[period] = {
             "return_pct": round(weighted_sum / weight_total * 100.0, 2)
             if weight_total
+            else None,
+            "annualised_return_pct": round(ann_sum / ann_weight_total * 100.0, 2)
+            if ann_weight_total
             else None,
             "coverage": f"{contributing}/{len(components)}",
         }
@@ -819,7 +875,8 @@ def _actual_period_returns(
         symbol, currency = resolve_symbol(h.ticker, h.exchange)
         weight = value_holding(session, h)["market_value_base"]
         returns = {
-            p: _period_return(symbol, currency, p, base, cache) for p in periods
+            p: _period_return_detail(symbol, currency, p, base, cache)
+            for p in periods
         }
         components.append((weight, returns))
     return _weighted_period_returns(components, periods)
@@ -834,7 +891,8 @@ def _benchmark_period_returns(
     for c in benchmark.holdings:
         symbol, currency = resolve_symbol(c.ticker, c.exchange)
         returns = {
-            p: _period_return(symbol, currency, p, base, cache) for p in periods
+            p: _period_return_detail(symbol, currency, p, base, cache)
+            for p in periods
         }
         components.append((c.weight_pct, returns))
     return _weighted_period_returns(components, periods)
@@ -880,11 +938,18 @@ def compare_to_benchmarks(session: Session, periods=None) -> dict:
         for period in periods:
             a = actual[period]["return_pct"]
             b = bench_returns[period]["return_pct"]
+            a_pa = actual[period]["annualised_return_pct"]
+            b_pa = bench_returns[period]["annualised_return_pct"]
             comparison[period] = {
                 "actual_return_pct": a,
                 "benchmark_return_pct": b,
                 "excess_return_pct": round(a - b, 2)
                 if (a is not None and b is not None)
+                else None,
+                "actual_annualised_return_pct": a_pa,
+                "benchmark_annualised_return_pct": b_pa,
+                "excess_annualised_return_pct": round(a_pa - b_pa, 2)
+                if (a_pa is not None and b_pa is not None)
                 else None,
                 "benchmark_coverage": bench_returns[period]["coverage"],
             }

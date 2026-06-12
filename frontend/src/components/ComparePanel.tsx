@@ -73,7 +73,9 @@ export function ComparePanel() {
 
       <p className="muted small">
         "All" uses each security's full history — benchmarks of funds with
-        different inception dates are measured over different windows.
+        different inception dates are measured over different windows. Each
+        security is annualised over its own span, which puts them on the same
+        scale, but the windows still cover different market periods.
       </p>
     </div>
   );

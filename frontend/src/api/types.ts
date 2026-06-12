@@ -66,6 +66,9 @@ export interface Benchmark {
 
 export interface PeriodReturn {
   return_pct: number | null;
+  // CAGR over the series' actual span; null for sub-year periods (and when
+  // the span is unknown), where annualising would just amplify noise.
+  annualised_return_pct: number | null;
   coverage: string;
 }
 
@@ -73,6 +76,9 @@ export interface ComparisonCell {
   actual_return_pct: number | null;
   benchmark_return_pct: number | null;
   excess_return_pct: number | null;
+  actual_annualised_return_pct: number | null;
+  benchmark_annualised_return_pct: number | null;
+  excess_annualised_return_pct: number | null;
   benchmark_coverage: string;
 }
 

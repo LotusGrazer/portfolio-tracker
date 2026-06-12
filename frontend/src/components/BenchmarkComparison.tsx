@@ -30,13 +30,27 @@ export function BenchmarkComparison({ comparison }: Props) {
     );
   }
 
+  // Chart annualised (p.a.) returns for year-plus periods so a 1y bar and a
+  // "max" bar are on a comparable scale; sub-year periods stay cumulative.
+  const isAnnualised = (period: string) =>
+    actual[period]?.annualised_return_pct != null ||
+    benchmarks.some(
+      (b) => b.periods[period]?.benchmark_annualised_return_pct != null,
+    );
+
   const chartData = periods.map((period) => {
+    const pa = isAnnualised(period);
     const row: Record<string, number | string | null> = {
-      period,
-      Actual: actual[period]?.return_pct ?? null,
+      period: pa ? `${period} p.a.` : period,
+      Actual: pa
+        ? actual[period]?.annualised_return_pct ?? null
+        : actual[period]?.return_pct ?? null,
     };
     for (const bench of benchmarks) {
-      row[bench.name] = bench.periods[period]?.benchmark_return_pct ?? null;
+      const cell = bench.periods[period];
+      row[bench.name] = pa
+        ? cell?.benchmark_annualised_return_pct ?? null
+        : cell?.benchmark_return_pct ?? null;
     }
     return row;
   });
@@ -84,7 +98,12 @@ export function BenchmarkComparison({ comparison }: Props) {
               </td>
               {periods.map((p) => (
                 <td key={p} className={`num ${gainClass(actual[p]?.return_pct)}`}>
-                  {formatPct(actual[p]?.return_pct, true)}
+                  <div>{formatPct(actual[p]?.return_pct, true)}</div>
+                  {actual[p]?.annualised_return_pct != null && (
+                    <div className="muted small">
+                      {formatPct(actual[p].annualised_return_pct, true)} p.a.
+                    </div>
+                  )}
                 </td>
               ))}
             </tr>
@@ -93,11 +112,22 @@ export function BenchmarkComparison({ comparison }: Props) {
                 <td>{bench.name}</td>
                 {periods.map((p) => {
                   const cell = bench.periods[p];
+                  const annualised = cell?.benchmark_annualised_return_pct;
+                  const excess =
+                    annualised != null
+                      ? cell?.excess_annualised_return_pct
+                      : cell?.excess_return_pct;
                   return (
                     <td key={p} className="num">
                       <div>{formatPct(cell?.benchmark_return_pct, true)}</div>
-                      <div className={`small ${gainClass(cell?.excess_return_pct)}`}>
-                        {formatPct(cell?.excess_return_pct, true)} excess
+                      {annualised != null && (
+                        <div className="muted small">
+                          {formatPct(annualised, true)} p.a.
+                        </div>
+                      )}
+                      <div className={`small ${gainClass(excess)}`}>
+                        {formatPct(excess, true)} excess
+                        {annualised != null ? " p.a." : ""}
                       </div>
                     </td>
                   );
@@ -111,6 +141,9 @@ export function BenchmarkComparison({ comparison }: Props) {
         Excess = actual − benchmark. Returns are <strong>total return</strong>
         {" "}(dividends reinvested, via each security's accumulation series), so
         use dividend-paying ETFs as benchmarks rather than price-only indices.
+        Year-plus periods are charted <strong>annualised</strong> (p.a. = compound
+        annual rate over each series' actual span) so different windows are
+        comparable; sub-year periods stay cumulative.
       </p>
     </div>
   );

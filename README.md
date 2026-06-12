@@ -245,7 +245,13 @@ curl "http://127.0.0.1:5000/benchmarks/compare?periods=3mo,1y"
 
 Returns, per period: the actual portfolio return, each benchmark return, and
 the `excess_return_pct` (actual − benchmark). `coverage` shows how many
-constituents had usable price history (e.g. `3/3`). Returns are **total return**
+constituents had usable price history (e.g. `3/3`). Year-plus periods also
+include **annualised** figures (`annualised_return_pct`,
+`*_annualised_return_pct`, `excess_annualised_return_pct`): each security's
+compound annual rate over its *actual* data span, weighted as usual — this is
+what makes a 1y bar comparable to a 10y or `max` bar (the Compare chart plots
+these, labelled "p.a."). Sub-year periods are never annualised (that would
+extrapolate noise) and report `null`. Returns are **total return**
 — computed from each security's dividend-adjusted (accumulation) series, so
 dividends are included on both sides. Use dividend-paying ETF tickers as
 benchmark constituents (e.g. VAS, VGS, URTH); a price-only index like `^AXJO`

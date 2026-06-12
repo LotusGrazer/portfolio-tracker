@@ -67,6 +67,52 @@ def test_period_return_aligns_fx_by_index_not_position(monkeypatch):
     assert pf._period_return("AAPL", "USD", "1y", "AUD") == pytest.approx(0.21)
 
 
+def _dated_series(values: list[float], start: str, end: str) -> pd.Series:
+    return pd.Series(values, index=pd.date_range(start, end, periods=len(values)))
+
+
+def test_period_return_detail_measures_span_from_actual_dates(monkeypatch):
+    # 21% over exactly two years of data -> ~10% p.a., regardless of the
+    # nominal period label ("max" here).
+    series = {"VAS.AX": _dated_series([100.0, 110.0, 121.0], "2024-01-01", "2025-12-31")}
+    monkeypatch.setattr(pf, "_fetch_close_series", lambda s, p: series.get(s))
+    ret, years = pf._period_return_detail("VAS.AX", "AUD", "max", "AUD")
+    assert ret == pytest.approx(0.21)
+    assert years == pytest.approx(2.0, abs=0.01)
+    assert pf._annualise(ret, years) == pytest.approx(0.10, abs=0.001)
+
+
+def test_no_annualisation_without_date_index(history):
+    # The plain fake series have no dates -> span unknown -> no annualisation,
+    # but the cumulative return still works.
+    history["VAS.AX"] = [100.0, 110.0]
+    ret, years = pf._period_return_detail("VAS.AX", "AUD", "1y", "AUD")
+    assert ret == pytest.approx(0.10)
+    assert years is None
+    assert pf._annualise(ret, years) is None
+
+
+def test_compare_includes_annualised_fields(session, add_holding, monkeypatch):
+    # Portfolio +21% and benchmark +10% over the same two years -> annualised
+    # ~10.0% vs ~4.9% p.a., excess ~5.1% p.a.
+    series = {
+        "VAS.AX": _dated_series([100.0, 121.0], "2024-01-01", "2025-12-31"),
+        "AOV.AX": _dated_series([100.0, 110.0], "2024-01-01", "2025-12-31"),
+    }
+    monkeypatch.setattr(pf, "_fetch_close_series", lambda s, p: series.get(s))
+    add_holding("VAS", quantity=10, exchange="ASX")
+    pf.create_benchmark_from_dict(
+        session, {"name": "B", "constituents": [{"ticker": "AOV", "weight_pct": 100}]}
+    )
+
+    result = pf.compare_to_benchmarks(session, periods=["2y"])
+    assert result["actual"]["2y"]["annualised_return_pct"] == pytest.approx(10.0, abs=0.05)
+    cell = result["benchmarks"][0]["periods"]["2y"]
+    assert cell["actual_annualised_return_pct"] == pytest.approx(10.0, abs=0.05)
+    assert cell["benchmark_annualised_return_pct"] == pytest.approx(4.88, abs=0.05)
+    assert cell["excess_annualised_return_pct"] == pytest.approx(5.12, abs=0.1)
+
+
 def test_period_return_native_when_fx_starts_after_equity(monkeypatch):
     # No FX rate exists at or before the equity's start -> fall back to the
     # native-currency return rather than pairing mismatched dates.
@@ -83,8 +129,8 @@ def test_period_return_native_when_fx_starts_after_equity(monkeypatch):
 # --------------------------------------------------------------------------- #
 def test_weighted_period_returns_basic():
     components = [
-        (1000.0, {"1mo": 0.10}),
-        (1000.0, {"1mo": 0.20}),
+        (1000.0, {"1mo": (0.10, None)}),
+        (1000.0, {"1mo": (0.20, None)}),
     ]
     out = pf._weighted_period_returns(components, ["1mo"])
     assert out["1mo"]["return_pct"] == 15.0
@@ -93,7 +139,7 @@ def test_weighted_period_returns_basic():
 
 def test_weighted_period_returns_renormalises_on_missing():
     components = [
-        (1000.0, {"1mo": 0.10}),
+        (1000.0, {"1mo": (0.10, None)}),
         (1000.0, {"1mo": None}),  # missing data
     ]
     out = pf._weighted_period_returns(components, ["1mo"])
@@ -105,6 +151,31 @@ def test_weighted_period_returns_all_missing():
     out = pf._weighted_period_returns([(1000.0, {"1mo": None})], ["1mo"])
     assert out["1mo"]["return_pct"] is None
     assert out["1mo"]["coverage"] == "0/1"
+
+
+def test_weighted_returns_annualise_each_component_over_its_own_span():
+    # Two components with the same 21% cumulative return, one earned over two
+    # years (10% p.a.) and one over four (4.88% p.a.) — as under "max" with
+    # different inception dates. Each is annualised over its own span before
+    # weighting; the cumulative figure is unaffected.
+    components = [
+        (1000.0, {"max": (0.21, 2.0)}),
+        (1000.0, {"max": (0.21, 4.0)}),
+    ]
+    out = pf._weighted_period_returns(components, ["max"])
+    assert out["max"]["return_pct"] == 21.0
+    expected = ((1.21 ** 0.5 - 1) + (1.21 ** 0.25 - 1)) / 2 * 100
+    assert out["max"]["annualised_return_pct"] == pytest.approx(expected, abs=0.01)
+
+
+def test_weighted_returns_no_annualisation_for_sub_year_spans():
+    components = [
+        (1000.0, {"3mo": (0.10, 0.25)}),
+        (1000.0, {"3mo": (0.20, None)}),  # no date index
+    ]
+    out = pf._weighted_period_returns(components, ["3mo"])
+    assert out["3mo"]["return_pct"] == 15.0
+    assert out["3mo"]["annualised_return_pct"] is None
 
 
 # --------------------------------------------------------------------------- #
