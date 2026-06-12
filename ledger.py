@@ -43,7 +43,6 @@ from portfolio import (
 
 BUY = "buy"
 SELL = "sell"
-CGT_DISCOUNT_DAYS = 365  # held strictly longer than 12 months
 
 # Tickers that are Cboe Australia (Chi-X) listings, which CMC lists as plain
 # AUD-priced codes. Mapped to the CBOE_AU exchange (Yahoo ".XA" suffix) so
@@ -110,6 +109,14 @@ class RealisedEvent:
         }
 
 
+def _one_year_after(d: dt.date) -> dt.date:
+    """The calendar anniversary of ``d`` (29 Feb maps to 28 Feb)."""
+    try:
+        return d.replace(year=d.year + 1)
+    except ValueError:
+        return d.replace(year=d.year + 1, day=28)
+
+
 def fifo_process(
     ticker: str, legs: list[Leg]
 ) -> tuple[list[RealisedEvent], list[Parcel]]:
@@ -117,8 +124,12 @@ def fifo_process(
 
     Returns ``(realised_events, open_parcels)``. Raises ``PortfolioError`` if a
     sell exceeds the quantity currently held (an oversell).
+
+    Same-day legs process buys before sells (a same-day buy+sell would
+    otherwise oversell depending on input order); ties beyond that keep input
+    order, so callers should pass legs in insertion (id) order.
     """
-    ordered = sorted(legs, key=lambda lg: lg.trade_date)
+    ordered = sorted(legs, key=lambda lg: (lg.trade_date, lg.type != BUY))
     open_parcels: list[Parcel] = []
     realised: list[RealisedEvent] = []
 
@@ -155,8 +166,12 @@ def fifo_process(
                         proceeds=proceeds,
                         cost_base=cost_base,
                         currency=parcel.currency,
-                        cgt_discount_eligible=(leg.trade_date - parcel.trade_date).days
-                        > CGT_DISCOUNT_DAYS,
+                        # Strictly more than 12 calendar months. Compared as
+                        # dates, not day counts: 365-day arithmetic flags an
+                        # exactly-12-month hold as eligible when the span
+                        # crosses 29 February.
+                        cgt_discount_eligible=leg.trade_date
+                        > _one_year_after(parcel.trade_date),
                     )
                 )
                 parcel.quantity -= take
@@ -192,6 +207,9 @@ def _financial_year_bounds(fy: str) -> tuple[dt.date, dt.date]:
 # --------------------------------------------------------------------------- #
 def _legs_by_ticker(transactions: list[Transaction]) -> dict[str, list[Leg]]:
     grouped: dict[str, list[Leg]] = {}
+    # Insertion (id) order is the FIFO tiebreak for same-day, same-type legs,
+    # so don't rely on the caller's (or the database's) row order.
+    transactions = sorted(transactions, key=lambda t: (t.trade_date, t.id))
     for t in transactions:
         grouped.setdefault(t.ticker, []).append(
             Leg(
@@ -211,6 +229,7 @@ def _actual_transactions(session: Session) -> list[Transaction]:
         session.query(Transaction)
         .join(Portfolio)
         .filter(Portfolio.type == "actual")
+        .order_by(Transaction.trade_date, Transaction.id)
         .all()
     )
 
@@ -395,7 +414,12 @@ def _cmc_fee(ttype: str, quantity: float, price: float, debit, credit) -> float:
     """
     consideration = quantity * price
     raw = debit if ttype == BUY else credit
-    value = _parse_float(raw, "amount")  # tolerant; None if blank/garbage
+    try:
+        value = _parse_float(raw, "amount")  # None if blank
+    except PortfolioError:
+        # An unparseable cash value (e.g. "$1,234.56 CR") must not abort the
+        # whole import — the trade itself is fine, we just can't derive a fee.
+        value = None
     if value is None:
         return 0.0
     fee = (value - consideration) if ttype == BUY else (consideration - value)

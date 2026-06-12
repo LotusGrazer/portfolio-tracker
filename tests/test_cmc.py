@@ -114,3 +114,17 @@ def test_cmc_replace(session):
     ledger.ingest_transactions_csv(session, CMC_CSV, replace=True)
     # Replace, not append -> still 4.
     assert session.query(Transaction).count() == 4
+
+
+def test_cmc_unparseable_cash_value_does_not_abort_import(session):
+    # The trade row itself is fine; a Debit/Credit cell we can't parse just
+    # means no fee can be derived (fee 0), not a failed upload.
+    csv_data = (
+        "Date,Description,Debit $,Credit $,Balance $\n"
+        "1/1/2023,Bght 100 AOV @ 2.0000 111,$210.00 CR,,\n"
+    )
+    result = ledger.ingest_transactions_csv(session, csv_data)
+    assert result.added == 1
+    assert result.errors == []
+    txn = session.query(Transaction).one()
+    assert txn.fee == 0.0

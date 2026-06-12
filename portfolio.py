@@ -12,6 +12,7 @@ import datetime as dt
 import io
 from dataclasses import dataclass, field
 
+import pandas as pd
 import yfinance as yf
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -253,8 +254,13 @@ def portfolio_summary(session: Session) -> dict:
 
     total_value = 0.0
     total_cost = 0.0
+    # Market value of only the holdings that have a cost base. Gain/loss is
+    # computed over this subset: a priced holding with no cost base would
+    # otherwise add to value but not cost, silently inflating the gain.
+    covered_value = 0.0
     priced = 0
     unpriced: list[str] = []
+    missing_cost: list[str] = []
 
     by_asset_class: dict[str, float] = {}
     by_broker: dict[str, float] = {}
@@ -269,6 +275,9 @@ def portfolio_summary(session: Session) -> dict:
         total_value += mv
         if h["cost_base_total_base"] is not None:
             total_cost += h["cost_base_total_base"]
+            covered_value += mv
+        else:
+            missing_cost.append(h["ticker"])
 
         ac = h.get("asset_class") or "unknown"
         broker = h.get("broker") or "unknown"
@@ -277,7 +286,7 @@ def portfolio_summary(session: Session) -> dict:
         by_broker[broker] = by_broker.get(broker, 0.0) + mv
         by_currency[ccy] = by_currency.get(ccy, 0.0) + mv
 
-    gain = total_value - total_cost if total_cost else None
+    gain = covered_value - total_cost if total_cost else None
     gain_pct = (gain / total_cost * 100.0) if (gain is not None and total_cost) else None
 
     def _weighted(d: dict[str, float]) -> list[dict]:
@@ -301,6 +310,7 @@ def portfolio_summary(session: Session) -> dict:
         "holdings_count": len(valued),
         "holdings_priced": priced,
         "unpriced_tickers": unpriced,
+        "missing_cost_base_tickers": missing_cost,
         "by_asset_class": _weighted(by_asset_class),
         "by_broker": _weighted(by_broker),
         "by_currency": _weighted(by_currency),
@@ -649,11 +659,16 @@ def _period_return(
     if fx is None or len(fx) < 2:
         # Fall back to the native-currency return rather than failing.
         return end / start - 1.0
-    start_fx = float(fx.iloc[0])
-    end_fx = float(fx.iloc[-1])
-    if start_fx == 0:
+    # Align the FX rate to the equity's start/end dates rather than pairing
+    # by position: the two series trade on different calendars (exchange
+    # holidays, inception dates), so fx.iloc[0] can be a rate from a very
+    # different date than the equity's first close. ``asof`` takes the last
+    # rate at or before each endpoint.
+    start_fx = fx.asof(closes.index[0])
+    end_fx = fx.asof(closes.index[-1])
+    if pd.isna(start_fx) or pd.isna(end_fx) or float(start_fx) == 0:
         return end / start - 1.0
-    return (end * end_fx) / (start * start_fx) - 1.0
+    return (end * float(end_fx)) / (start * float(start_fx)) - 1.0
 
 
 def _weighted_period_returns(

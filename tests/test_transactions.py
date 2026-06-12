@@ -203,3 +203,14 @@ def test_oversell_reported_as_warning_not_error(client):
     resp = client.get("/portfolio/realised")
     assert resp.status_code == 200
     assert any("oversell" in w for w in resp.get_json()["warnings"])
+
+
+def test_same_day_buy_and_sell_inserted_sell_first(session, add_transaction):
+    # Row order in the database must not decide FIFO order: the sell is
+    # inserted first but shares the buy's trade date, so it must not oversell.
+    add_transaction("AOV", "sell", 100, 3.00, "2023-06-01")
+    add_transaction("AOV", "buy", 100, 2.00, "2023-06-01")
+    result = ledger.compute_realised(session)
+    assert result["warnings"] == []
+    assert len(result["events"]) == 1
+    assert result["events"][0]["gain"] == 100.0

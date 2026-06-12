@@ -88,6 +88,42 @@ def test_exactly_365_days_is_not_eligible():
     assert e.cgt_discount_eligible is False
 
 
+def test_exactly_twelve_months_across_leap_day_is_not_eligible():
+    # 2023-06-30 -> 2024-06-30 spans 29 Feb 2024, so it is 366 days but still
+    # exactly 12 calendar months — not eligible. (Day-count arithmetic gets
+    # this wrong.)
+    e = fifo_process(
+        "X",
+        [Leg(BUY, 1, 1.0, d("2023-06-30")), Leg(SELL, 1, 2.0, d("2024-06-30"))],
+    )[0][0]
+    assert (e.sell_date - e.buy_date).days == 366
+    assert e.cgt_discount_eligible is False
+
+
+def test_one_day_past_twelve_months_across_leap_day_is_eligible():
+    e = fifo_process(
+        "X",
+        [Leg(BUY, 1, 1.0, d("2023-06-30")), Leg(SELL, 1, 2.0, d("2024-07-01"))],
+    )[0][0]
+    assert e.cgt_discount_eligible is True
+
+
+def test_feb_29_acquisition_anniversary_is_feb_28():
+    # Bought on a leap day: the 12-month anniversary is 28 Feb, so a sale on
+    # 1 Mar the following year is (just) eligible and 28 Feb is not.
+    on_anniversary = fifo_process(
+        "X",
+        [Leg(BUY, 1, 1.0, d("2024-02-29")), Leg(SELL, 1, 2.0, d("2025-02-28"))],
+    )[0][0]
+    assert on_anniversary.cgt_discount_eligible is False
+
+    past_anniversary = fifo_process(
+        "X",
+        [Leg(BUY, 1, 1.0, d("2024-02-29")), Leg(SELL, 1, 2.0, d("2025-03-01"))],
+    )[0][0]
+    assert past_anniversary.cgt_discount_eligible is True
+
+
 def test_oversell_raises():
     legs = [
         Leg(BUY, 50, 2.00, d("2023-01-01")),
@@ -113,6 +149,18 @@ def test_legs_sorted_by_date_regardless_of_input_order():
     legs = [
         Leg(SELL, 100, 3.00, d("2023-06-01")),  # listed first but later date
         Leg(BUY, 100, 2.00, d("2023-01-01")),
+    ]
+    realised, parcels = fifo_process("AOV", legs)
+    assert realised[0].gain == 100.0
+    assert parcels == []
+
+
+def test_same_day_buy_and_sell_processes_buy_first():
+    # A same-day round trip must not raise a spurious oversell when the sell
+    # happens to be listed first.
+    legs = [
+        Leg(SELL, 100, 3.00, d("2023-06-01")),
+        Leg(BUY, 100, 2.00, d("2023-06-01")),
     ]
     realised, parcels = fifo_process("AOV", legs)
     assert realised[0].gain == 100.0

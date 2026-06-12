@@ -41,6 +41,18 @@ def test_summary_lists_unpriced(session, add_holding):
     assert summary["unpriced_tickers"] == ["NOPE"]
 
 
+def test_summary_gain_only_covers_holdings_with_cost_base(session, add_holding):
+    add_holding("VAS", quantity=10, cost=90.0)  # value 1000, cost 900
+    add_holding("AAPL", quantity=10, exchange="US")  # value 4500, no cost base
+    summary = pf.portfolio_summary(session)
+    assert summary["total_market_value"] == 5500.0
+    assert summary["total_cost_base"] == 900.0
+    # Gain compares the costed holding's value to its cost (1000 - 900), not
+    # the whole portfolio's value (5500 - 900).
+    assert summary["total_gain_loss"] == 100.0
+    assert summary["missing_cost_base_tickers"] == ["AAPL"]
+
+
 def test_empty_portfolio_summary(session):
     summary = pf.portfolio_summary(session)
     assert summary["total_market_value"] == 0

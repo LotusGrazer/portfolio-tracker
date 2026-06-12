@@ -54,6 +54,30 @@ def test_period_return_none_without_history(history):
     assert pf._period_return("NOPE", "AUD", "3mo", "AUD") is None
 
 
+def test_period_return_aligns_fx_by_index_not_position(monkeypatch):
+    # The FX series trades on a different calendar and starts before the
+    # equity. The rate must be taken at the equity's start/end points (1.40
+    # and 1.54), not the FX series' first/last values.
+    series = {
+        "AAPL": pd.Series([100.0, 110.0], index=[2, 3]),
+        "USDAUD=X": pd.Series([9.99, 1.40, 1.54, 9.99], index=[0, 2, 3, 4]),
+    }
+    monkeypatch.setattr(pf, "_fetch_close_series", lambda s, p: series.get(s))
+    # (110 * 1.54) / (100 * 1.40) - 1 = 0.21
+    assert pf._period_return("AAPL", "USD", "1y", "AUD") == pytest.approx(0.21)
+
+
+def test_period_return_native_when_fx_starts_after_equity(monkeypatch):
+    # No FX rate exists at or before the equity's start -> fall back to the
+    # native-currency return rather than pairing mismatched dates.
+    series = {
+        "AAPL": pd.Series([100.0, 110.0], index=[0, 1]),
+        "USDAUD=X": pd.Series([1.40, 1.54], index=[5, 6]),
+    }
+    monkeypatch.setattr(pf, "_fetch_close_series", lambda s, p: series.get(s))
+    assert pf._period_return("AAPL", "USD", "1y", "AUD") == pytest.approx(0.10)
+
+
 # --------------------------------------------------------------------------- #
 # Weighting helper
 # --------------------------------------------------------------------------- #

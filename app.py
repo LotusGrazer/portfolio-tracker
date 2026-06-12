@@ -1,4 +1,3 @@
-""" Portfolio tracker Flask app. """
 """Flask application: portfolio tracker REST API + bundled frontend.
 
 Run locally:
