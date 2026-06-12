@@ -209,8 +209,10 @@ if __name__ == "__main__":
     # Debug/reloader off by default so the launcher runs a single clean process;
     # set FLASK_DEBUG=1 for auto-reload during development.
     debug = _truthy(os.environ.get("FLASK_DEBUG"))
-    # threaded=False serialises requests so the SQLite price cache is never
-    # written by two requests at once (the dashboard fires several API calls in
-    # parallel on load). Fine for a local single-user app; only the first
-    # cold-cache load is slow, after which prices are cached.
-    app.run(host="127.0.0.1", port=5000, debug=debug, threaded=False)
+    # threaded=True so a slow request (e.g. a cold-cache price refresh) never
+    # blocks serving index.html or other API calls — with a single-threaded
+    # server, the browser shows a blank page until the slow request finishes.
+    # Concurrent SQLite writes are already handled: WAL mode + busy timeout
+    # (database.py) and a savepoint around duplicate price inserts
+    # (portfolio._store_price).
+    app.run(host="127.0.0.1", port=5000, debug=debug, threaded=True)

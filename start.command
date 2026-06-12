@@ -21,8 +21,12 @@ SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null' EXIT
 
 echo "Starting Portfolio Tracker…"
+# Don't just check the connection succeeds: macOS AirPlay Receiver also
+# listens on port 5000 and answers (with an empty body) while Flask is still
+# starting, which would open the browser too early — onto a blank page.
+# Only proceed once the response is actually our health JSON.
 for _ in $(seq 1 40); do
-  if curl -s "$URL/health" >/dev/null 2>&1; then break; fi
+  if curl -s -m 2 "$URL/health" 2>/dev/null | grep -q '"ok"'; then break; fi
   sleep 0.5
 done
 
