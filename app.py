@@ -17,6 +17,7 @@ from flask_cors import CORS
 
 import config
 import ledger
+import performance
 import portfolio as pf
 from database import init_db, session_scope
 
@@ -173,6 +174,21 @@ def create_app() -> Flask:
                     session, financial_year=fy, taxable_income=taxable_income
                 )
             )
+
+    @app.get("/portfolio/performance")
+    def get_performance():
+        # ?period=1y (one of pf.SUPPORTED_PERIODS; default max). Reconstructs
+        # actual performance over time from the transaction ledger.
+        period = request.args.get("period") or "max"
+        if period not in pf.SUPPORTED_PERIODS:
+            return jsonify(
+                {
+                    "error": f"unsupported period: {period}",
+                    "supported": list(pf.SUPPORTED_PERIODS),
+                }
+            ), 400
+        with session_scope() as session:
+            return jsonify(performance.compute_performance(session, period))
 
     @app.post("/transactions/sync-holdings")
     def sync_holdings():

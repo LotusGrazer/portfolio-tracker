@@ -95,6 +95,41 @@ export interface Comparison {
   benchmarks: BenchmarkComparison[];
 }
 
+// One day in the performance series. Besides the fixed keys, each benchmark
+// appears under its own name as an indexed (start = 100) value.
+export interface PerformancePoint {
+  date: string;
+  value: number;
+  portfolio: number | null;
+  [benchmarkName: string]: string | number | null;
+}
+
+export interface PerformanceBenchmark {
+  id: number;
+  name: string;
+  return_pct: number;
+  annualised_return_pct: number | null;
+}
+
+export interface Performance {
+  available: boolean;
+  reason?: string;
+  base_currency?: string;
+  period?: string;
+  start_date?: string;
+  end_date?: string;
+  current_value?: number;
+  net_invested?: number;
+  income_received?: number;
+  twr_pct?: number;
+  twr_annualised_pct?: number | null;
+  money_weighted_pct?: number | null;
+  benchmarks?: PerformanceBenchmark[];
+  series?: PerformancePoint[];
+  estimated_tickers?: string[];
+  warnings?: string[];
+}
+
 export interface UploadResult {
   portfolio: string;
   added: number;

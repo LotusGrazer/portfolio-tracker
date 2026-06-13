@@ -8,6 +8,7 @@ import { ComparePanel } from "./components/ComparePanel";
 import { HoldingsView } from "./components/HoldingsView";
 import { Loading } from "./components/Loading";
 import { ManagePanel } from "./components/ManagePanel";
+import { PerformancePanel } from "./components/PerformancePanel";
 import { SummaryCards } from "./components/SummaryCards";
 import { TransactionsPanel } from "./components/TransactionsPanel";
 
@@ -16,6 +17,7 @@ type Tab =
   | "holdings"
   | "benchmarks"
   | "compare"
+  | "performance"
   | "transactions"
   | "cgt"
   | "manage";
@@ -25,6 +27,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "holdings", label: "Holdings" },
   { id: "benchmarks", label: "Benchmarks" },
   { id: "compare", label: "Compare" },
+  { id: "performance", label: "Performance" },
   { id: "transactions", label: "Transactions" },
   { id: "cgt", label: "CGT" },
   { id: "manage", label: "Manage" },
@@ -145,6 +148,7 @@ export default function App() {
             )}
             {tab === "cgt" && <CgtPanel />}
             {tab === "compare" && <ComparePanel />}
+            {tab === "performance" && <PerformancePanel />}
             {tab === "manage" && <ManagePanel onChanged={handleChanged} />}
           </>
         )}

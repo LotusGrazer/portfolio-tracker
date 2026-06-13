@@ -258,6 +258,29 @@ benchmark constituents (e.g. VAS, VGS, URTH); a price-only index like `^AXJO`
 won't include distributions. Weighted by current holdings/weights, so the
 comparison isolates investment performance from contribution timing.
 
+### `GET /portfolio/performance`
+**Actual** performance over time, reconstructed from the transaction ledger
+(see [`performance.py`](performance.py)) — unlike `/benchmarks/compare`, which
+asks how the *current* allocation would have performed. Daily holdings are
+rebuilt from every buy/sell, valued at unadjusted daily closes (FX-converted),
+and reported as:
+
+- `twr_pct` / `twr_annualised_pct` — **time-weighted return**: daily returns
+  with external cash flows stripped out, compounded; comparable to a benchmark.
+- `money_weighted_pct` — **XIRR**: the annual rate your invested dollars
+  actually earned, where contribution timing matters.
+- `series` — daily chart points (portfolio indexed to 100, plus each
+  benchmark's total-return index over the same window), downsampled for
+  charting.
+- `income_received` — dividends credited on their ex-dates (per-share dividend
+  × units held), assumed taken as cash, not auto-reinvested.
+
+Query param: `period` (same labels as `/benchmarks/compare`; default `max` =
+since the first recorded trade). Tickers with no price history (e.g. delisted
+funds) are valued at their own trade prices carried forward and listed in
+`estimated_tickers`. Returns `available: false` with a reason when there are
+no transactions. Surfaced as the **Performance** tab.
+
 ### `GET /transactions`
 All transactions across actual portfolios, newest trade first.
 
@@ -326,6 +349,8 @@ allocation donut charts), **Holdings** (valued table — toggle between
 **Consolidated** one-row-per-ticker and **Parcels** per-purchase for CGT),
 **Benchmarks**
 (definitions), **Compare** (benchmark-vs-actual return chart + table),
+**Performance** (actual performance over time from the ledger: growth-of-100
+chart vs benchmarks, TWR and XIRR),
 **Transactions** (ledger table; import a CMC export or native CSV and build
 holdings from it in one step),
 **CGT** (FY + taxable-income controls → realised gains, discount, and estimated

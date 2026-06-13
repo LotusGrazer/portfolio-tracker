@@ -2,6 +2,7 @@ import type {
   Benchmark,
   Comparison,
   Holding,
+  Performance,
   Realised,
   Summary,
   SyncResult,
@@ -44,6 +45,11 @@ export const api = {
   holdings: () => request<Holding[]>("/holdings"),
   summary: () => request<Summary>("/portfolio/summary"),
   benchmarks: () => request<Benchmark[]>("/benchmarks"),
+
+  performance: (period?: string) => {
+    const qs = period ? `?period=${period}` : "";
+    return request<Performance>(`/portfolio/performance${qs}`);
+  },
 
   compare: (periods?: string[]) => {
     const qs = periods?.length ? `?periods=${periods.join(",")}` : "";

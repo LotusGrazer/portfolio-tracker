@@ -23,6 +23,7 @@ os.environ.setdefault("PRICE_CACHE_TTL_MINUTES", "15")
 import pytest  # noqa: E402
 
 import config  # noqa: E402
+import performance  # noqa: E402
 import portfolio as pf  # noqa: E402
 from app import app as flask_app  # noqa: E402
 from database import SessionLocal, engine, ensure_portfolio  # noqa: E402
@@ -99,6 +100,19 @@ def market(monkeypatch):
     fake = FakeMarket()
     monkeypatch.setattr(pf, "_fetch_live_price", fake.fetch)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def daily_history(monkeypatch):
+    """No-network seam for performance.py's full-history downloads.
+
+    Populate the returned dict with ``{symbol: DataFrame(close, dividends)}``
+    (see tests/test_performance.py for a builder); unknown symbols return no
+    history, as for delisted tickers.
+    """
+    data: dict[str, object] = {}
+    monkeypatch.setattr(performance, "_fetch_daily_history", data.get)
+    return data
 
 
 # --------------------------------------------------------------------------- #
