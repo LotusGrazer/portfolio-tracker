@@ -288,6 +288,146 @@ def _rebase(series: pd.Series) -> pd.Series | None:
 
 
 # --------------------------------------------------------------------------- #
+# Risk / risk-adjusted metrics (computed on the daily series above)
+# --------------------------------------------------------------------------- #
+TRADING_DAYS = 252
+MIN_METRIC_OBS = 20  # below this, daily-frequency statistics are just noise
+
+
+def _pct(value: float | None) -> float | None:
+    """Fraction -> rounded percent, passing None through."""
+    return round(value * 100.0, 2) if value is not None else None
+
+
+def _business_day_returns(level: pd.Series) -> pd.Series:
+    """Daily returns of an indexed level series, restricted to weekdays.
+
+    The daily index includes weekends (flat, so ~0 returns) which would bias
+    volatility downward; restricting to Mon–Fri uses the conventional ~252
+    trading-day basis and treats Fri→Mon as one step. (Public holidays remain
+    as near-zero days — a minor second-order effect.)
+    """
+    weekday = level[level.index.dayofweek < 5]
+    return weekday.pct_change().dropna()
+
+
+def _annualised_vol(returns: pd.Series) -> float | None:
+    if len(returns) < MIN_METRIC_OBS:
+        return None
+    return float(returns.std(ddof=1) * (TRADING_DAYS ** 0.5))
+
+
+def _max_drawdown(level: pd.Series) -> float | None:
+    """Largest peak-to-trough fall of an indexed level series (negative)."""
+    lvl = level.dropna()
+    if len(lvl) < 2:
+        return None
+    return float((lvl / lvl.cummax() - 1.0).min())
+
+
+def _sharpe(ann_return: float | None, ann_vol: float | None, rf: float) -> float | None:
+    if ann_return is None or not ann_vol:
+        return None
+    return round((ann_return - rf) / ann_vol, 2)
+
+
+def _beta_correlation(
+    port: pd.Series, bench: pd.Series
+) -> tuple[float | None, float | None]:
+    """Beta and correlation of portfolio daily returns against a benchmark's."""
+    df = pd.concat([port, bench], axis=1, join="inner").dropna()
+    if len(df) < MIN_METRIC_OBS:
+        return None, None
+    p, b = df.iloc[:, 0], df.iloc[:, 1]
+    var_b, var_p = b.var(ddof=1), p.var(ddof=1)
+    beta = round(float(p.cov(b) / var_b), 2) if var_b else None
+    # Correlation is undefined if either side is constant (zero variance).
+    corr = round(float(p.corr(b)), 2) if (var_b and var_p) else None
+    return beta, corr
+
+
+def _tracking_error(port: pd.Series, bench: pd.Series) -> float | None:
+    """Annualised standard deviation of the active (port − bench) daily return."""
+    df = pd.concat([port, bench], axis=1, join="inner").dropna()
+    if len(df) < MIN_METRIC_OBS:
+        return None
+    active = df.iloc[:, 0] - df.iloc[:, 1]
+    return float(active.std(ddof=1) * (TRADING_DAYS ** 0.5))
+
+
+def _risk_metrics(
+    twr_w: pd.Series,
+    twr_annualised: float | None,
+    bench_series: dict[str, pd.Series],
+    bench_ann_return: dict[str, float | None],
+    bench_ids: dict[str, int],
+    annualisable: bool,
+) -> dict:
+    """Risk and risk-adjusted metrics from the windowed daily index series.
+
+    Standalone metrics (volatility, max drawdown, Sharpe) are reported for the
+    portfolio and each benchmark; relational metrics (beta, correlation,
+    tracking error, information ratio, alpha) describe the **portfolio against
+    that benchmark**. Sharpe / IR / alpha are annual-rate concepts, so they
+    are only filled for windows of about a year or more (``annualisable``);
+    beta, correlation, volatility and drawdown apply to any window with enough
+    observations.
+    """
+    rf = config.RISK_FREE_RATE
+    port_returns = _business_day_returns(twr_w)
+    port_vol = _annualised_vol(port_returns)
+
+    bench_metrics = []
+    for name, series in bench_series.items():
+        bench_returns = _business_day_returns(series)
+        b_vol = _annualised_vol(bench_returns)
+        b_ann = bench_ann_return.get(name)
+        beta, corr = _beta_correlation(port_returns, bench_returns)
+        te = _tracking_error(port_returns, bench_returns)
+
+        info_ratio = None
+        if annualisable and te and twr_annualised is not None and b_ann is not None:
+            info_ratio = round((twr_annualised - b_ann) / te, 2)
+        alpha = None
+        if (
+            annualisable
+            and beta is not None
+            and twr_annualised is not None
+            and b_ann is not None
+        ):
+            alpha = twr_annualised - (rf + beta * (b_ann - rf))
+
+        bench_metrics.append(
+            {
+                "id": bench_ids.get(name),
+                "name": name,
+                "annualised_volatility_pct": _pct(b_vol),
+                "max_drawdown_pct": _pct(_max_drawdown(series)),
+                "sharpe_ratio": _sharpe(b_ann, b_vol, rf),
+                "beta": beta,
+                "correlation": corr,
+                "tracking_error_pct": _pct(te),
+                "information_ratio": info_ratio,
+                "alpha_pct": _pct(alpha),
+            }
+        )
+
+    return {
+        "risk_free_rate_pct": round(rf * 100.0, 2),
+        "trading_days_basis": TRADING_DAYS,
+        "observations": len(port_returns),
+        # IR / Sharpe / alpha need a year-plus window to be meaningful.
+        "annualised_ratios": annualisable,
+        "portfolio": {
+            "annualised_volatility_pct": _pct(port_vol),
+            "max_drawdown_pct": _pct(_max_drawdown(twr_w)),
+            "sharpe_ratio": _sharpe(twr_annualised, port_vol, rf),
+        },
+        "benchmarks": bench_metrics,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Main entry point
 # --------------------------------------------------------------------------- #
 def compute_performance(session: Session, period: str = "max") -> dict:
@@ -432,7 +572,9 @@ def compute_performance(session: Session, period: str = "max") -> dict:
     money_weighted = xirr(flows)
 
     # Benchmarks over the same window, rebased to 100 at the window start.
+    annualisable = years >= _MIN_ANNUALISE_YEARS
     bench_series: dict[str, pd.Series] = {}
+    bench_ann_return: dict[str, float | None] = {}  # name -> CAGR (fraction)
     bench_summary = []
     for bench in benchmarks:
         full = _benchmark_index(bench, base, histories, index)
@@ -443,18 +585,27 @@ def compute_performance(session: Session, period: str = "max") -> dict:
             continue
         bench_series[bench.name] = rebased
         b_return = rebased.iloc[-1] / 100.0 - 1.0
+        ann = (
+            (1.0 + b_return) ** (1.0 / years) - 1.0 if annualisable else None
+        )
+        bench_ann_return[bench.name] = ann
         bench_summary.append(
             {
                 "id": bench.id,
                 "name": bench.name,
                 "return_pct": round(b_return * 100.0, 2),
-                "annualised_return_pct": round(
-                    ((1.0 + b_return) ** (1.0 / years) - 1.0) * 100.0, 2
-                )
-                if years >= _MIN_ANNUALISE_YEARS
-                else None,
+                "annualised_return_pct": _pct(ann),
             }
         )
+
+    metrics = _risk_metrics(
+        twr_w,
+        twr_annualised,
+        bench_series,
+        bench_ann_return,
+        {b["name"]: b["id"] for b in bench_summary},
+        annualisable,
+    )
 
     chart_index = _downsample(window)
     series = []
@@ -477,8 +628,9 @@ def compute_performance(session: Session, period: str = "max") -> dict:
         warnings.append(
             "No usable price history for: "
             + ", ".join(sorted(estimated))
-            + ". Their daily values are carried forward from your own trade "
-            "prices, so movements between trades aren't captured."
+            + ". Their daily values are interpolated between your own trade "
+            "prices, so movements between trades aren't captured and volatility "
+            "over those periods is understated."
         )
 
     return {
@@ -498,6 +650,7 @@ def compute_performance(session: Session, period: str = "max") -> dict:
         if money_weighted is not None
         else None,
         "benchmarks": bench_summary,
+        "metrics": metrics,
         "series": series,
         "estimated_tickers": sorted(estimated),
         "warnings": warnings,

@@ -111,6 +111,35 @@ export interface PerformanceBenchmark {
   annualised_return_pct: number | null;
 }
 
+// Standalone risk metrics (apply to one series).
+export interface SeriesMetrics {
+  annualised_volatility_pct: number | null;
+  max_drawdown_pct: number | null;
+  sharpe_ratio: number | null;
+}
+
+// Per-benchmark metrics: standalone, plus relational ones describing the
+// portfolio *against* that benchmark (beta, correlation, tracking error,
+// information ratio, alpha).
+export interface BenchmarkMetrics extends SeriesMetrics {
+  id: number;
+  name: string;
+  beta: number | null;
+  correlation: number | null;
+  tracking_error_pct: number | null;
+  information_ratio: number | null;
+  alpha_pct: number | null;
+}
+
+export interface PerformanceMetrics {
+  risk_free_rate_pct: number;
+  trading_days_basis: number;
+  observations: number;
+  annualised_ratios: boolean;
+  portfolio: SeriesMetrics;
+  benchmarks: BenchmarkMetrics[];
+}
+
 export interface Performance {
   available: boolean;
   reason?: string;
@@ -125,6 +154,7 @@ export interface Performance {
   twr_annualised_pct?: number | null;
   money_weighted_pct?: number | null;
   benchmarks?: PerformanceBenchmark[];
+  metrics?: PerformanceMetrics;
   series?: PerformancePoint[];
   estimated_tickers?: string[];
   warnings?: string[];

@@ -18,6 +18,33 @@ def history_frame(closes: dict[str, float], dividends: dict[str, float] | None =
     return frame.sort_index()
 
 
+def linear_history(points: list[tuple[str, float]]):
+    """Dense daily history linearly interpolated between (date, price) points."""
+    anchors = pd.Series({pd.Timestamp(d): p for d, p in points}).sort_index()
+    daily = anchors.reindex(
+        pd.date_range(anchors.index[0], anchors.index[-1], freq="D")
+    ).interpolate()
+    return history_frame({d.date().isoformat(): float(v) for d, v in daily.items()})
+
+
+def wiggly_history(start: str, days: int, base: float = 100.0):
+    """A deterministic, varied daily series ending `days` after `start`.
+
+    A seeded pseudo-random walk so volatility/beta are exercised on genuine
+    day-to-day variation, while staying reproducible.
+    """
+    closes: dict[str, float] = {}
+    price = base
+    seed = 12345
+    d = pd.Timestamp(start)
+    for _ in range(days):
+        seed = (seed * 1103515245 + 12345) % (2**31)
+        price *= 1.0 + (seed % 1000 - 500) / 20000.0  # ±2.5% daily
+        closes[d.date().isoformat()] = round(price, 4)
+        d += pd.Timedelta(days=1)
+    return history_frame(closes)
+
+
 # --------------------------------------------------------------------------- #
 # XIRR
 # --------------------------------------------------------------------------- #
@@ -213,6 +240,82 @@ def test_series_downsampled(session, add_transaction, daily_history):
     out = performance.compute_performance(session, "max")
     assert len(out["series"]) <= performance.MAX_CHART_POINTS + 1
     assert out["series"][-1]["date"] == out["end_date"]
+
+
+# --------------------------------------------------------------------------- #
+# Risk / risk-adjusted metrics
+# --------------------------------------------------------------------------- #
+def test_metrics_beta_one_when_portfolio_is_the_benchmark(
+    session, add_transaction, daily_history
+):
+    # Holding the sole benchmark constituent (no dividends, no mid-window
+    # flows) means the portfolio's daily returns equal the benchmark's, so
+    # beta and correlation are 1 and tracking error ~0.
+    daily_history["AOV.AX"] = wiggly_history("2022-01-01", 500)
+    add_transaction("AOV", "buy", 100, 100.0, "2022-01-01")
+    pf.create_benchmark_from_dict(
+        session, {"name": "B", "constituents": [{"ticker": "AOV", "weight_pct": 100}]}
+    )
+    m = performance.compute_performance(session, "max")["metrics"]
+    assert m["observations"] > 100
+    assert m["portfolio"]["annualised_volatility_pct"] > 0
+    bm = m["benchmarks"][0]
+    assert bm["beta"] == pytest.approx(1.0, abs=0.03)
+    assert bm["correlation"] == pytest.approx(1.0, abs=0.02)
+    assert bm["tracking_error_pct"] == pytest.approx(0.0, abs=0.3)
+    # Same series both sides -> alpha negligible, IR undefined-ish (~0).
+    assert bm["alpha_pct"] == pytest.approx(0.0, abs=0.5)
+
+
+def test_metrics_max_drawdown_exact(session, add_transaction, daily_history):
+    # Price rises 100 -> 200 then falls to 150: peak-to-trough drawdown -25%.
+    daily_history["AOV.AX"] = linear_history(
+        [("2023-01-01", 100.0), ("2023-02-20", 200.0), ("2023-04-10", 150.0)]
+    )
+    add_transaction("AOV", "buy", 100, 100.0, "2023-01-01")
+    m = performance.compute_performance(session, "max")["metrics"]
+    assert m["portfolio"]["max_drawdown_pct"] == pytest.approx(-25.0, abs=0.5)
+
+
+def test_metrics_flat_series_has_zero_volatility(
+    session, add_transaction, daily_history
+):
+    daily_history["AOV.AX"] = linear_history(
+        [("2023-01-01", 100.0), ("2024-01-01", 100.0)]
+    )
+    add_transaction("AOV", "buy", 100, 100.0, "2023-01-01")
+    m = performance.compute_performance(session, "max")["metrics"]
+    assert m["portfolio"]["annualised_volatility_pct"] == pytest.approx(0.0, abs=0.01)
+    assert m["portfolio"]["max_drawdown_pct"] == pytest.approx(0.0, abs=0.01)
+
+
+def test_metrics_ratios_gated_on_window_length(
+    session, add_transaction, daily_history
+):
+    today = dt.date.today()
+    start = (today - dt.timedelta(days=900)).isoformat()
+    daily_history["AOV.AX"] = wiggly_history(start, 900)
+    add_transaction("AOV", "buy", 100, 100.0, start)
+
+    out_max = performance.compute_performance(session, "max")["metrics"]
+    assert out_max["annualised_ratios"] is True
+    assert out_max["portfolio"]["sharpe_ratio"] is not None
+
+    out_3mo = performance.compute_performance(session, "3mo")["metrics"]
+    assert out_3mo["annualised_ratios"] is False
+    # Sub-year: annual-rate ratios suppressed, but vol/drawdown still reported.
+    assert out_3mo["portfolio"]["sharpe_ratio"] is None
+    assert out_3mo["portfolio"]["annualised_volatility_pct"] is not None
+
+
+def test_metrics_risk_free_rate_from_config(
+    session, add_transaction, daily_history, monkeypatch
+):
+    monkeypatch.setattr(performance.config, "RISK_FREE_RATE", 0.055)
+    daily_history["AOV.AX"] = wiggly_history("2022-01-01", 500)
+    add_transaction("AOV", "buy", 100, 100.0, "2022-01-01")
+    m = performance.compute_performance(session, "max")["metrics"]
+    assert m["risk_free_rate_pct"] == pytest.approx(5.5)
 
 
 # --------------------------------------------------------------------------- #

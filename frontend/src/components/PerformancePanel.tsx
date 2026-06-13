@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import { api } from "../api/client";
 import type { Performance } from "../api/types";
-import { formatCurrency, formatPct, gainClass } from "../utils/format";
+import { formatCurrency, formatNumber, formatPct, gainClass } from "../utils/format";
 import { Loading } from "./Loading";
 
 const PALETTE = ["#4f7cff", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
@@ -191,6 +191,10 @@ export function PerformancePanel() {
         </div>
       )}
 
+      {data.metrics && data.metrics.observations >= 20 && (
+        <MetricsTable metrics={data.metrics} />
+      )}
+
       {(data.warnings ?? []).map((w) => (
         <p key={w} className="muted small">
           ⚠ {w}
@@ -205,6 +209,96 @@ export function PerformancePanel() {
         invested dollars actually earned. Dividends are counted as cash income
         on their ex-dates (not auto-reinvested), while benchmarks assume
         reinvestment — any cash drag is real and shows here.
+      </p>
+    </div>
+  );
+}
+
+function MetricsTable({ metrics }: { metrics: NonNullable<Performance["metrics"]> }) {
+  const m = metrics;
+  // pct: percentage metric; otherwise a plain ratio. portfolio=null marks a
+  // relational metric (portfolio vs each benchmark) with no standalone value.
+  const rows: {
+    label: string;
+    pct?: boolean;
+    portfolio: number | null;
+    pick: (b: (typeof m.benchmarks)[number]) => number | null;
+  }[] = [
+    {
+      label: "Annualised volatility",
+      pct: true,
+      portfolio: m.portfolio.annualised_volatility_pct,
+      pick: (b) => b.annualised_volatility_pct,
+    },
+    {
+      label: "Max drawdown",
+      pct: true,
+      portfolio: m.portfolio.max_drawdown_pct,
+      pick: (b) => b.max_drawdown_pct,
+    },
+    {
+      label: "Sharpe ratio",
+      portfolio: m.portfolio.sharpe_ratio,
+      pick: (b) => b.sharpe_ratio,
+    },
+    { label: "Beta", portfolio: null, pick: (b) => b.beta },
+    { label: "Correlation", portfolio: null, pick: (b) => b.correlation },
+    {
+      label: "Tracking error",
+      pct: true,
+      portfolio: null,
+      pick: (b) => b.tracking_error_pct,
+    },
+    {
+      label: "Information ratio",
+      portfolio: null,
+      pick: (b) => b.information_ratio,
+    },
+    { label: "Alpha (p.a.)", pct: true, portfolio: null, pick: (b) => b.alpha_pct },
+  ];
+  const fmt = (v: number | null, pct?: boolean) =>
+    pct ? formatPct(v, true) : formatNumber(v, 2);
+
+  return (
+    <div className="table-wrap">
+      <h3>Risk &amp; risk-adjusted metrics</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th className="num">Portfolio</th>
+            {m.benchmarks.map((b) => (
+              <th key={b.id} className="num">
+                {b.name}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label}>
+              <td>{row.label}</td>
+              <td className="num">{fmt(row.portfolio, row.pct)}</td>
+              {m.benchmarks.map((b) => (
+                <td key={b.id} className="num">
+                  {fmt(row.pick(b), row.pct)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted small">
+        Computed from daily returns ({m.observations} trading days,{" "}
+        {m.trading_days_basis}-day annualisation). Beta, correlation, tracking
+        error, information ratio and alpha describe the <strong>portfolio
+        relative to that benchmark</strong>. Sharpe and alpha assume a{" "}
+        {formatPct(m.risk_free_rate_pct)} risk-free rate (set{" "}
+        <code>RISK_FREE_RATE</code> to change).
+        {!m.annualised_ratios &&
+          " Sharpe, information ratio and alpha need a year-plus window and are hidden for shorter periods."}{" "}
+        Periods holding tickers without price history have understated
+        volatility (their values are interpolated).
       </p>
     </div>
   );

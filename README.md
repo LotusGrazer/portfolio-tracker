@@ -76,6 +76,7 @@ All settable via environment variables — see `config.py`:
 | `BASE_CURRENCY` | `AUD` | Currency totals are reported in |
 | `PRICE_CACHE_TTL_MINUTES` | `15` | How long cached prices stay fresh |
 | `DEFAULT_PORTFOLIO` | `My Portfolio` | Portfolio uploads default to |
+| `RISK_FREE_RATE` | `0.04` | Annual rate for Sharpe / alpha (Performance tab) |
 
 ## Testing
 
@@ -274,6 +275,12 @@ and reported as:
   charting.
 - `income_received` — dividends credited on their ex-dates (per-share dividend
   × units held), assumed taken as cash, not auto-reinvested.
+- `metrics` — risk and risk-adjusted measures from the daily series:
+  annualised volatility, max drawdown and Sharpe for the portfolio and each
+  benchmark, plus beta, correlation, tracking error, information ratio and
+  Jensen's alpha of the **portfolio relative to each benchmark**. Computed on
+  weekday returns (252-day basis); Sharpe / information ratio / alpha need a
+  year-plus window (`annualised_ratios`). Sharpe and alpha use `RISK_FREE_RATE`.
 
 Query param: `period` (same labels as `/benchmarks/compare`; default `max` =
 since the first recorded trade). Tickers with no price history (e.g. delisted

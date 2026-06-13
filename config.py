@@ -24,3 +24,8 @@ PRICE_CACHE_TTL_MINUTES = int(os.environ.get("PRICE_CACHE_TTL_MINUTES", "15"))
 
 # Holdings uploaded without an explicit portfolio name land here.
 DEFAULT_PORTFOLIO = os.environ.get("DEFAULT_PORTFOLIO", "My Portfolio")
+
+# Annual risk-free rate used for the Sharpe ratio and Jensen's alpha on the
+# Performance tab. A rough cash-rate assumption (there's no clean free AUD
+# cash-rate series via yfinance); override to your preferred figure.
+RISK_FREE_RATE = float(os.environ.get("RISK_FREE_RATE", "0.04"))

@@ -13,13 +13,17 @@ Future ideas / deferred work, roughly in priority order. Tick off as done.
       data, assumed taken as cash.)
 - [ ] **Cache full price histories** — /portfolio/performance re-downloads
       ~max-period history for every ticker on each request (parallel, so a few
-      seconds, but a short-TTL cache would make period switching instant).
+      seconds, but a short-TTL cache would make period switching instant). Would
+      also stabilise results: borderline tickers like VGMF intermittently
+      return history from yfinance, so the TWR/metrics can shift between loads
+      depending on whether that history came back (vs. trade-price fallback).
 - [ ] **Reconcile dividends against the CMC export** — the export has the
       actually-received dividend rows (incl. DRP); use them instead of/alongside
       yfinance ex-date estimates, and add franking-credit tracking. Also fold
       received distributions into Holdings/Summary gain-loss.
-- [ ] **Risk metrics on actual history** (Phase 2) — volatility, max drawdown,
-      tracking error, information ratio, beta on the daily TWR series.
+- [x] **Risk metrics on actual history** (Phase 2) — volatility, max drawdown,
+      Sharpe, beta, correlation, tracking error, information ratio and alpha on
+      the daily TWR series, in the Performance tab's metrics table.
 - [ ] **Per-person / household CGT split** — currently treated as one tax entity.
 - [ ] **Per-trade-date FX** for exact AUD CGT on foreign-currency trades.
 - [ ] **CGT indexation method** — the 50% discount is expected to be replaced by
