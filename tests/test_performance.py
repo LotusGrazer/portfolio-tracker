@@ -135,8 +135,8 @@ def test_fx_move_included_in_base_performance(session, add_transaction, daily_hi
 def test_delisted_ticker_valued_at_trade_prices(
     session, add_transaction, daily_history
 ):
-    # VGMF has no Yahoo history: its value steps between its own trade prices
-    # and the ticker is flagged. Sold at a gain -> that gain is still real.
+    # VGMF has no Yahoo history: its value is interpolated between its own
+    # trade prices and the ticker is flagged. Sold at a gain -> gain is real.
     add_transaction("VGMF", "buy", 100, 2.0, "2023-01-01")
     add_transaction("VGMF", "sell", 100, 3.0, "2023-06-01")
     out = performance.compute_performance(session, "max")
@@ -144,6 +144,24 @@ def test_delisted_ticker_valued_at_trade_prices(
     assert any("VGMF" in w for w in out["warnings"])
     assert out["twr_pct"] == pytest.approx(50.0, abs=0.1)
     assert out["current_value"] == pytest.approx(0.0)
+
+def test_delisted_ticker_loss_has_no_single_day_cliff(
+    session, add_transaction, daily_history
+):
+    # The VGMF case from the real ledger: bought high, sold ~19% lower seven
+    # months later, with no interim prices. The loss is real and must show in
+    # the cumulative TWR, but it should be spread across the holding period —
+    # no single day should carry the whole drop.
+    add_transaction("VGMF", "buy", 154, 64.61, "2022-01-10")
+    add_transaction("VGMF", "sell", 154, 52.376, "2022-07-13")
+    out = performance.compute_performance(session, "max")
+    # Cumulative loss is correct (52.376/64.61 - 1).
+    assert out["twr_pct"] == pytest.approx(-18.9, abs=0.3)
+    # No day in the indexed series drops more than ~3% (interpolated glide),
+    # versus a single ~-19% cliff under the old carry-forward valuation.
+    idx = [p["portfolio"] for p in out["series"] if p["portfolio"] is not None]
+    worst = min(b / a - 1.0 for a, b in zip(idx, idx[1:]))
+    assert worst > -0.05
 
 
 # --------------------------------------------------------------------------- #

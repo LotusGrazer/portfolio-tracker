@@ -28,10 +28,13 @@ Conventions / scope:
     sit idle shows the real drag of doing so.
   * Valuation uses **unadjusted** closes: adjusted ("accumulation") prices
     rescale history, which mis-values positions when quantities change.
-  * Tickers with no usable price history (e.g. delisted funds) are valued at
-    their own trade prices, carried forward, and reported in
-    ``estimated_tickers``. Days before a ticker's history begins are anchored
-    the same way.
+  * Tickers with no usable price history (e.g. delisted funds) are valued by
+    linearly interpolating between their own trade prices, and reported in
+    ``estimated_tickers``. The endpoints are real trades so the cumulative
+    return is exact; interpolating (rather than holding the last price flat)
+    just avoids dumping a whole holding period's price move onto the single
+    day a trade reveals the new price. Days before a ticker's history begins
+    are anchored the same way.
 """
 from __future__ import annotations
 
@@ -158,26 +161,45 @@ def _price_series(
 ) -> tuple[pd.Series, pd.Series | None, bool]:
     """Daily ``(close, dividends, estimated)`` for one ticker.
 
-    Without history (delisted tickers), prices step between the ticker's own
-    trade prices. With history that starts after the first trade, the early
-    days are anchored by trade prices the same way. ``estimated`` reports
-    whether any trade-price anchoring was needed.
+    Without history (delisted tickers), the price is linearly interpolated
+    between the ticker's own trade prices: the endpoints are real, so the
+    cumulative return is exact, but the known move is spread smoothly over the
+    holding period instead of cliff-stepping onto the single day a trade
+    reveals the new price (which would show as a spurious one-day jump). The
+    same anchoring fills any window before real history begins. ``estimated``
+    reports whether trade-price anchoring was needed.
     """
     trade_prices = pd.Series(
         {pd.Timestamp(t.trade_date): t.price_per_unit for t in legs}
     ).sort_index()
 
     if history is None:
-        return trade_prices.reindex(index, method="ffill"), None, True
+        return _interpolate_anchors(trade_prices, index), None, True
 
     closes = history["close"]
     estimated = False
     early = trade_prices[trade_prices.index < closes.index[0]]
     if len(early):
-        closes = pd.concat([early, closes])
+        # Glide from the pre-history trade anchors into the first real close
+        # rather than holding flat and jumping.
+        closes = _interpolate_anchors(pd.concat([early, closes]), index)
         estimated = True
+    else:
+        closes = closes.reindex(index, method="ffill")
     dividends = history["dividends"].reindex(index, fill_value=0.0)
-    return closes.reindex(index, method="ffill"), dividends, estimated
+    return closes, dividends, estimated
+
+
+def _interpolate_anchors(anchors: pd.Series, index: pd.DatetimeIndex) -> pd.Series:
+    """Reindex ``anchors`` to ``index``, interpolating gaps by date.
+
+    Time-interpolation distributes a known price move smoothly between anchor
+    dates; the last value is carried forward past the final anchor. Leading
+    days before the first anchor stay NaN (the ticker isn't held yet, so its
+    weight is zero and the caller's outer ``fillna(0)`` covers it).
+    """
+    deduped = anchors[~anchors.index.duplicated(keep="last")]
+    return deduped.reindex(index).interpolate(method="time").ffill()
 
 
 def _fx_series(
